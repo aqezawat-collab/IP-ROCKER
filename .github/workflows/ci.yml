@@ -42,6 +42,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        # Full history so `git rev-list --count HEAD` yields a real, monotonic
+        # versionCode; a shallow checkout would report 1 every time.
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-go@v5
         with:

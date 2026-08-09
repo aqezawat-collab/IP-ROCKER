@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to build, e.g. 1.0.0"
+        description: "Version to build, e.g. 3.0.0"
         required: true
 
 permissions:
@@ -33,8 +33,8 @@ jobs:
           else
             RAW="${GITHUB_REF#refs/tags/}"
           fi
-          # Strip a leading v, and a stray dot after it, so a v.1.5.0 style tag
-          # does not end up in binary names as ".1.5.0".
+          # Strip a leading v, and a stray dot after it, so a v.3.0.0 style tag
+          # does not end up in binary names as ".3.0.0".
           TAG="${RAW#v}"
           echo "version=${TAG#.}" >> "$GITHUB_OUTPUT"
 
@@ -95,7 +95,7 @@ jobs:
             RAW="${GITHUB_REF#refs/tags/}"
           fi
 
-          # Tolerate the shapes a human actually types: v1.5.0, 1.5.0, v.1.5.0,
+          # Tolerate the shapes a human actually types: v3.0.0, 3.0..0, v.3.0..0,
           # 1.5, and a -rc1 style suffix. Anything left after this that is not
           # MAJOR.MINOR[.PATCH] is a mistake worth failing loudly on, because a
           # bad versionCode cannot be taken back once users have installed it.

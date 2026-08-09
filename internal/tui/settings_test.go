@@ -297,6 +297,65 @@ func TestProbeConfigReflectsSettings(t *testing.T) {
 	}
 }
 
+// The custom-ranges paste row appears only once a custom scope is chosen; a
+// knob that cannot act should not be shown, just like the min-speed row.
+func TestRangesListRowHiddenUntilCustomSelected(t *testing.T) {
+	s := defaultSettings()
+	if hasRow(s.rows(), rowRangesList) {
+		t.Fatal("paste row shown while the scope is the built-in ranges")
+	}
+	s.rangesIdx = 1
+	if !hasRow(s.rows(), rowRangesList) {
+		t.Fatal("paste row missing with add-custom selected")
+	}
+}
+
+// The pasted list must accept bare IPs, CIDRs, newlines and commas, and count
+// the entries so the row can show a short summary instead of the raw text.
+func TestCustomRangesParseAndCount(t *testing.T) {
+	s := defaultSettings()
+	if err := s.applyCustom(rowRangesList, "1.2.3.0/24\n5.6.7.8, 9.9.9.0/24"); err != nil {
+		t.Fatalf("applyCustom: %v", err)
+	}
+	if got := s.customRangeCount(); got != 3 {
+		t.Fatalf("customRangeCount = %d, want 3", got)
+	}
+	if got := s.rangesSummary(); got != "3 ranges" {
+		t.Fatalf("summary = %q", got)
+	}
+
+	before := s.rangesText
+	if err := s.applyCustom(rowRangesList, "banana"); err == nil {
+		t.Fatal("an invalid range list was accepted")
+	}
+	if s.rangesText != before {
+		t.Fatal("a rejected list changed the stored text")
+	}
+
+	if err := s.applyCustom(rowRangesList, "   "); err != nil {
+		t.Fatalf("clearing the list errored: %v", err)
+	}
+	if s.customRangeCount() != 0 {
+		t.Fatal("cleared list still counts ranges")
+	}
+}
+
+// The cost line must say the scope, because "only custom" changes how many
+// addresses the count actually means.
+func TestCostLineNotesCustomScope(t *testing.T) {
+	s := defaultSettings()
+	if strings.Contains(s.costLine(), "custom") {
+		t.Fatalf("default scope mentioned custom ranges: %q", s.costLine())
+	}
+	s.rangesIdx = 2
+	if err := s.applyCustom(rowRangesList, "1.2.3.0/24"); err != nil {
+		t.Fatalf("applyCustom: %v", err)
+	}
+	if !strings.Contains(s.costLine(), "only custom ranges") {
+		t.Fatalf("cost line missing the scope: %q", s.costLine())
+	}
+}
+
 // The custom prompt must only appear on rows that have a custom slot selected.
 func TestCustomPromptOnlyOnCustomSlot(t *testing.T) {
 	s := defaultSettings()

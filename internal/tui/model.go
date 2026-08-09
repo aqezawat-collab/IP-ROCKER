@@ -18,6 +18,7 @@ import (
 	"github.com/Qezawat/IP-ROCKER/internal/reputation"
 	"github.com/Qezawat/IP-ROCKER/internal/scanner"
 	"github.com/Qezawat/IP-ROCKER/internal/score"
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -56,6 +57,9 @@ type Model struct {
 	rowIdx  int // index into set.rows()
 	editing bool
 	input   textinput.Model
+	// ta is the multiline editor for the custom-ranges paste, which a single
+	// line cannot hold.
+	ta      textarea.Model
 	editRow setupRow
 	errMsg  string
 
@@ -82,10 +86,20 @@ func New(version string) Model {
 	ti := textinput.New()
 	ti.Prompt = "  > "
 	ti.CharLimit = 512
+
+	ta := textarea.New()
+	ta.Prompt = "  > "
+	ta.Placeholder = "1.2.3.0/24\n5.6.7.8\n# my panel"
+	ta.CharLimit = 0
+	ta.ShowLineNumbers = false
+	ta.SetWidth(60)
+	ta.SetHeight(5)
+
 	return Model{
 		version: version,
 		set:     defaultSettings(),
 		input:   ti,
+		ta:      ta,
 	}
 }
 
@@ -178,8 +192,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Text entry owns every key except escape and enter.
+	// Text entry owns every key except the accept/cancel pair. The ranges paste
+	// is a multiline field, so there enter inserts a newline and ctrl+d accepts;
+	// everywhere else enter accepts and the field is single-line.
 	if m.editing {
+		if m.editRow == rowRangesList {
+			switch k.String() {
+			case "esc":
+				m.editing = false
+				m.errMsg = ""
+				return m, nil
+			case "ctrl+d":
+				if err := m.set.applyCustom(m.editRow, m.ta.Value()); err != nil {
+					m.errMsg = err.Error()
+					return m, nil
+				}
+				m.editing = false
+				m.errMsg = ""
+				return m, nil
+			}
+			var cmd tea.Cmd
+			m.ta, cmd = m.ta.Update(k)
+			return m, cmd
+		}
 		switch k.String() {
 		case "esc":
 			m.editing = false
@@ -305,9 +340,13 @@ func (m Model) keySetup(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.set.setIdx(row, idx+1)
 		}
 	case "c":
-		// Jump straight to the custom slot when the row has one.
+		// A row with a custom slot jumps straight to it. A free-entry row (the
+		// custom ranges paste) opens the editor directly.
 		if len(ps) > 0 && ps[len(ps)-1].custom {
 			m.set.setIdx(row, len(ps)-1)
+			return m.openEditor(row)
+		}
+		if prompt, _ := m.set.customPrompt(row); prompt != "" {
 			return m.openEditor(row)
 		}
 	case "enter":
@@ -324,6 +363,18 @@ func (m Model) keySetup(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) openEditor(row setupRow) (tea.Model, tea.Cmd) {
 	_, initial := m.set.customPrompt(row)
 	m.editRow = row
+	if row == rowRangesList {
+		m.ta.SetValue(initial)
+		if m.width > 0 {
+			m.ta.SetWidth(max(20, m.width-6))
+			// Six lines keeps a pasted block in view without burying the setup
+			// page beneath it on a short phone screen.
+			m.ta.SetHeight(min(6, max(3, m.height-16)))
+		}
+		m.ta.Focus()
+		m.editing = true
+		return m, nil
+	}
 	m.input.SetValue(initial)
 	m.input.Placeholder = ""
 	m.input.CursorEnd()
@@ -404,6 +455,19 @@ func (m Model) startScan() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Custom ranges were validated when the paste was accepted, but re-parsing
+	// here keeps startScan self-contained: a rangesText set another way cannot
+	// silently produce a scan of the wrong scope.
+	extraCIDRs, err := m.set.ranges()
+	if err != nil {
+		m.errMsg = err.Error()
+		return m, nil
+	}
+	if m.set.rangesIdx == 2 && len(extraCIDRs) == 0 {
+		m.errMsg = "only-custom is selected but no ranges are pasted (edit the Custom row)"
+		return m, nil
+	}
+
 	probeCfg := m.set.probeConfig(ports[0])
 
 	// A config link pins SNI, host, path and port to the user's real front, so
@@ -425,8 +489,10 @@ func (m Model) startScan() (tea.Model, tea.Cmd) {
 		Probe:       probeCfg,
 		Criteria:    m.set.criteria(),
 		Ranges: cfranges.Options{
-			IPv4:      true,
-			SkipDirty: true,
+			IPv4:       true,
+			SkipDirty:  true,
+			ExtraCIDRs: extraCIDRs,
+			OnlyExtra:  m.set.rangesIdx == 2,
 		},
 		SkipReputation: !m.set.reputation(),
 	}
@@ -569,8 +635,13 @@ func (m Model) viewSetup() string {
 	if m.editing {
 		prompt, _ := m.set.customPrompt(m.editRow)
 		sb.WriteString("\n  " + styText.Render(prompt) + "\n")
-		sb.WriteString(m.input.View() + "\n")
-		sb.WriteString(styHint.Render("  enter accept   esc cancel") + "\n")
+		if m.editRow == rowRangesList {
+			sb.WriteString(m.ta.View() + "\n")
+			sb.WriteString(styHint.Render("  enter newline   ctrl+d accept   esc cancel") + "\n")
+		} else {
+			sb.WriteString(m.input.View() + "\n")
+			sb.WriteString(styHint.Render("  enter accept   esc cancel") + "\n")
+		}
 	}
 	if m.errMsg != "" {
 		sb.WriteString("\n  " + styBad.Render("! "+m.errMsg) + "\n")

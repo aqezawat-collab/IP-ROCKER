@@ -44,7 +44,7 @@ func main() {
 		host        = flag.String("host", "", "HTTP Host header; empty uses the SNI")
 		strict      = flag.Bool("strict", false, "only accept addresses that are clean on every axis")
 		noRep       = flag.Bool("no-reputation", false, "skip reputation lookups and run fully offline")
-		extra       = flag.String("cidr", "", "comma-separated extra CIDRs to include")
+		extra       = flag.String("cidr", "", "comma-separated IPs/CIDRs to include (bare IPs become /32)")
 		only        = flag.Bool("only-cidr", false, "scan only the CIDRs given by -cidr")
 		top         = flag.Int("top", 20, "how many results to print")
 		jsonOut     = flag.String("json", "", "write the full report to this file as JSON")
@@ -92,11 +92,11 @@ func main() {
 		fail(err)
 	}
 
-	var extraCIDRs []string
-	for _, c := range strings.Split(*extra, ",") {
-		if c = strings.TrimSpace(c); c != "" {
-			extraCIDRs = append(extraCIDRs, c)
-		}
+	// -cidr takes IPs as well as CIDRs; a bare IP becomes a /32, so a pasted
+	// address list scans instead of erroring.
+	extraCIDRs, err := cfranges.ParseCustomList(*extra)
+	if err != nil {
+		fail(err)
 	}
 
 	opts := scanner.Options{

@@ -25,6 +25,8 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeyLeft}
 	case "right":
 		return tea.KeyMsg{Type: tea.KeyRight}
+	case "ctrl+d":
+		return tea.KeyMsg{Type: tea.KeyCtrlD}
 	}
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
 }
@@ -118,6 +120,73 @@ func TestCustomEditorRoundTrip(t *testing.T) {
 	}
 	if got := m.set.count(); got != 7500 {
 		t.Fatalf("custom count came out as %d", got)
+	}
+}
+
+// The custom-ranges row opens a multiline paste editor (not the single-line
+// field), and ctrl+d accepts it. The list is validated on accept so a typo is
+// caught in the editor instead of after the scan starts.
+func TestCustomRangesEditorRoundTrip(t *testing.T) {
+	m := New("test")
+	m.page = pageSetup
+	m.set.rangesIdx = 2 // Only custom — the paste row is now visible
+	rows := m.set.rows()
+	for i, r := range rows {
+		if r == rowRangesList {
+			m.rowIdx = i
+		}
+	}
+
+	m = send(m, key("c"))
+	if !m.editing || m.editRow != rowRangesList {
+		t.Fatal("c did not open the ranges editor")
+	}
+	m.ta.SetValue("1.2.3.0/24\n5.6.7.8")
+	m = send(m, key("ctrl+d"))
+	if m.editing {
+		t.Fatal("ctrl+d did not close the editor")
+	}
+	if got := m.set.customRangeCount(); got != 2 {
+		t.Fatalf("customRangeCount = %d, want 2", got)
+	}
+}
+
+// Garbage in the ranges paste must keep the editor open with an error.
+func TestCustomRangesEditorRejectsGarbage(t *testing.T) {
+	m := New("test")
+	m.page = pageSetup
+	m.set.rangesIdx = 2
+	rows := m.set.rows()
+	for i, r := range rows {
+		if r == rowRangesList {
+			m.rowIdx = i
+		}
+	}
+
+	m = send(m, key("c"))
+	m.ta.SetValue("1.2.3.0/24\nbanana")
+	m = send(m, key("ctrl+d"))
+	if !m.editing {
+		t.Fatal("editor closed on an invalid range list")
+	}
+	if m.errMsg == "" {
+		t.Fatal("no error shown for an invalid range list")
+	}
+}
+
+// "Only custom" with nothing pasted must refuse to scan rather than silently
+// probing the built-in ranges.
+func TestOnlyCustomWithoutListFailsBeforeScanning(t *testing.T) {
+	m := New("test")
+	m.page = pageSetup
+	m.set.rangesIdx = 2
+	next, _ := m.startScan()
+	m = next.(Model)
+	if m.page == pageScan {
+		t.Fatal("a scan started with only-custom selected but no ranges pasted")
+	}
+	if m.errMsg == "" {
+		t.Fatal("no error explaining the empty custom scope")
 	}
 }
 

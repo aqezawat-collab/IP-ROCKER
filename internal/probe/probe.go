@@ -74,6 +74,13 @@ var rotatingSNI = []string{
 	"developers.cloudflare.com",
 }
 
+// speedTestHost is the one host that reliably serves the throughput endpoints
+// (/__down, /__up). The other rotating SNI names return 404 for them, and a
+// config's own panel host never implements them, so measuring against either
+// failed good edges purely because the endpoint did not exist. The connection
+// stays pinned to the candidate edge IP — only the HTTP authority changes.
+const speedTestHost = "speed.cloudflare.com"
+
 // Config describes one probe session.
 type Config struct {
 	Port    int
@@ -159,6 +166,10 @@ type Attempt struct {
 	// DownloadTested records that a transfer was attempted, so a zero
 	// DownloadBps can be told apart from "the check was disabled".
 	DownloadTested bool
+
+	// Note is a non-fatal observation. The attempt still counts as a success;
+	// only Err disqualifies it.
+	Note string
 
 	Err string
 }
@@ -374,20 +385,29 @@ func probeHTTP(ctx context.Context, ip net.IP, sni string, cfg Config) Attempt {
 
 	if cfg.DownloadBytes > 0 {
 		att.DownloadTested = true
-		bps, err := measureDownload(ctx, client, scheme, host, cfg)
+		bps, err := measureDownload(ctx, client, scheme, speedTestHost, cfg)
 		if err != nil {
-			att.Err = "download: " + err.Error()
-			return att
+			if isEndpointError(err) {
+				// The endpoint refused the request (rate limit, challenge).
+				// That is a property of the host, not of this edge carrying
+				// traffic, so it must not turn a good address red.
+				att.Note = "download: " + err.Error()
+			} else {
+				att.Err = "download: " + err.Error()
+				return att
+			}
+		} else {
+			att.DownloadBps = bps
 		}
-		att.DownloadBps = bps
 	}
 
 	if cfg.UploadBytes > 0 {
-		bps, err := measureUpload(ctx, client, scheme, host, cfg)
+		bps, err := measureUpload(ctx, client, scheme, speedTestHost, cfg)
 		if err != nil {
 			// A failed upload downgrades the address but does not disqualify
 			// it, because not every front exposes an upload endpoint.
 			att.UploadBps = 0
+			att.Note = "upload: " + err.Error()
 		} else {
 			att.UploadBps = bps
 		}
@@ -471,7 +491,19 @@ func holdCheck(ctx context.Context, ip net.IP, sni string, cfg Config) bool {
 	return n > 0 && strings.Contains(string(buf[:n]), "HTTP/1.")
 }
 
-// measureDownload times a payload fetch through the pinned edge.
+// isEndpointError reports whether a measurement error means the endpoint
+// refused the request (an HTTP status) rather than the path failing mid-transfer
+// (reset, truncation, timeout). An endpoint refusal says nothing about whether
+// this edge can carry traffic, so it is recorded as a note instead of failing
+// the attempt. A transfer that starts and then stalls is the real signal that a
+// middlebox is answering for the edge, and stays fatal.
+func isEndpointError(err error) bool {
+	return err != nil && strings.HasPrefix(err.Error(), "HTTP ")
+}
+
+// measureDownload times a payload fetch through the pinned edge. host is the
+// endpoint authority, kept at speedTestHost so the request reaches a host that
+// actually serves /__down.
 func measureDownload(ctx context.Context, client *http.Client, scheme, host string, cfg Config) (float64, error) {
 	url := fmt.Sprintf("%s://%s/__down?bytes=%d", scheme, host, cfg.DownloadBytes)
 	reqCtx, cancel := context.WithTimeout(ctx, cfg.Timeout*3)
@@ -509,7 +541,9 @@ func measureDownload(ctx context.Context, client *http.Client, scheme, host stri
 	return float64(n) / elapsed.Seconds(), nil
 }
 
-// measureUpload times a payload POST through the pinned edge.
+// measureUpload times a payload POST through the pinned edge. host is the
+// endpoint authority, kept at speedTestHost so the request reaches a host that
+// actually serves /__up.
 func measureUpload(ctx context.Context, client *http.Client, scheme, host string, cfg Config) (float64, error) {
 	url := fmt.Sprintf("%s://%s/__up", scheme, host)
 	reqCtx, cancel := context.WithTimeout(ctx, cfg.Timeout*3)

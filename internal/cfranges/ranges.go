@@ -89,6 +89,42 @@ type Options struct {
 	Seed int64
 }
 
+// ParseCustomList splits a pasted list of IPs and CIDRs into validated ranges.
+//
+// It accepts newline- and comma-separated entries (so a pasted file and a
+// single line both work), ignores blank lines and # comments, and turns a bare
+// IP into a /32 (or /128 for IPv6). The result is ready for Options.ExtraCIDRs.
+func ParseCustomList(raw string) ([]string, error) {
+	var out []string
+	for _, entry := range strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == '\n' || r == '\r'
+	}) {
+		entry = strings.TrimSpace(entry)
+		if entry == "" || strings.HasPrefix(entry, "#") {
+			continue
+		}
+		// "1.2.3.0/24 # frankfurt" — keep the entry, drop the comment.
+		if i := strings.Index(entry, "#"); i >= 0 {
+			entry = strings.TrimSpace(entry[:i])
+			if entry == "" {
+				continue
+			}
+		}
+		if ip := net.ParseIP(entry); ip != nil {
+			if ip.To4() != nil {
+				entry += "/32"
+			} else {
+				entry += "/128"
+			}
+		}
+		if _, _, err := net.ParseCIDR(entry); err != nil {
+			return nil, fmt.Errorf("%q is not a valid IP or CIDR", entry)
+		}
+		out = append(out, entry)
+	}
+	return out, nil
+}
+
 // NewSource builds a weighted address generator.
 func NewSource(opts Options) (*Source, error) {
 	seed := opts.Seed

@@ -129,3 +129,48 @@ func TestNoRangesSelectedIsAnError(t *testing.T) {
 		t.Error("expected an error when no ranges are selected")
 	}
 }
+
+func TestParseCustomList(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want []string
+	}{
+		{"empty", "", nil},
+		{"blanks and comments only", "# list\n\n  \n", nil},
+		{"one per line", "1.2.3.0/24\n5.6.7.8\n", []string{"1.2.3.0/24", "5.6.7.8/32"}},
+		{"comma separated", " 1.2.3.0/24 , 5.6.7.8 ", []string{"1.2.3.0/24", "5.6.7.8/32"}},
+		{"mixed separators", "1.2.3.0/24,5.6.7.8\n9.9.9.0/24", []string{"1.2.3.0/24", "5.6.7.8/32", "9.9.9.0/24"}},
+		{"trailing comment", "1.2.3.0/24 # frankfurt", []string{"1.2.3.0/24"}},
+		{"crlf paste", "1.2.3.0/24\r\n5.6.7.8\r\n", []string{"1.2.3.0/24", "5.6.7.8/32"}},
+		{"ipv6 bare", "2001:db8::1", []string{"2001:db8::1/128"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseCustomList(tt.in)
+			if err != nil {
+				t.Fatalf("ParseCustomList: %v", err)
+			}
+			if len(got) != len(tt.want) {
+				t.Fatalf("got %v, want %v", got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Fatalf("entry %d = %q, want %q", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestParseCustomListRejectsGarbage(t *testing.T) {
+	for _, bad := range []string{"banana", "1.2.3.4/33", "300.1.2.3"} {
+		if _, err := ParseCustomList(bad); err == nil {
+			t.Errorf("ParseCustomList(%q) accepted garbage", bad)
+		}
+	}
+	// A valid entry must not be rejected just because one later line is bad.
+	if _, err := ParseCustomList("1.2.3.0/24\nnot-an-ip"); err == nil {
+		t.Error("a mixed list with a bad line was accepted")
+	}
+}

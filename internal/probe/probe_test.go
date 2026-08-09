@@ -21,7 +21,13 @@ type edgeOptions struct {
 	// downloadShort truncates the payload, imitating an edge that answers the
 	// first request but cannot actually carry traffic.
 	downloadShort bool
-	refuseWS      bool
+	// downloadStatus makes /__down return this status, imitating an endpoint
+	// that refuses the request (rate limit, challenge) while the edge is fine.
+	downloadStatus int
+	refuseWS       bool
+	// captureHost, when non-nil, receives the Host header of the download
+	// request, proving the throughput probe targets speed.cloudflare.com.
+	captureHost *string
 }
 
 func newEdge(t *testing.T, opts edgeOptions) (*httptest.Server, net.IP, int) {
@@ -41,6 +47,13 @@ func newEdge(t *testing.T, opts edgeOptions) (*httptest.Server, net.IP, int) {
 		w.Write([]byte(body))
 	})
 	mux.HandleFunc("/__down", func(w http.ResponseWriter, r *http.Request) {
+		if opts.captureHost != nil {
+			*opts.captureHost = r.Host
+		}
+		if opts.downloadStatus != 0 {
+			w.WriteHeader(opts.downloadStatus)
+			return
+		}
 		want, _ := strconv.Atoi(r.URL.Query().Get("bytes"))
 		if want <= 0 {
 			want = 1024
@@ -242,13 +255,15 @@ func TestProbeTCPAndTLSModes(t *testing.T) {
 
 // Certificate validation must be on unless explicitly disabled, so a scan
 // cannot be silently satisfied by a middlebox presenting its own certificate.
+// The custom-front convenience that auto-skips verification only kicks in when
+// SNI or Host is pinned; on the default rotating-SNI path it stays on.
 func TestCertificateValidationIsOnByDefault(t *testing.T) {
 	_, ip, port := newEdge(t, edgeOptions{})
 
-	cfg := baseConfig(port)
-	cfg.Mode = ModeTLS
-	cfg.InsecureSkipVerify = false
-	cfg.SNI = "not-the-test-cert.example.com"
+	cfg := Config{Port: port, Mode: ModeTLS, Tries: 2, Timeout: 4 * time.Second}.WithDefaults()
+	if cfg.InsecureSkipVerify {
+		t.Fatal("default path auto-enabled skip-verify without a custom front")
+	}
 
 	for _, a := range Probe(context.Background(), ip, cfg).Attempts {
 		if a.Ok() {
@@ -289,6 +304,47 @@ func TestContextCancellationStopsProbe(t *testing.T) {
 	res := Probe(ctx, ip, cfg)
 	if len(res.Attempts) > 1 {
 		t.Errorf("got %d attempts after cancellation, want at most 1", len(res.Attempts))
+	}
+}
+
+// The throughput probes must target speed.cloudflare.com rather than the SNI:
+// the rotating SNI names and a config's own panel host do not serve /__down, so
+// measuring against them failed every good edge even though it carried traffic.
+func TestDownloadTargetsSpeedHost(t *testing.T) {
+	var got string
+	_, ip, port := newEdge(t, edgeOptions{captureHost: &got})
+
+	cfg := baseConfig(port)
+	cfg.DownloadBytes = 64 * 1024
+	cfg.Host = "panel.example.com" // a config link would pin this
+
+	a := Probe(context.Background(), ip, cfg).Attempts[0]
+	if !a.Ok() {
+		t.Fatalf("attempt failed: %s", a.Err)
+	}
+	if got != speedTestHost {
+		t.Fatalf("download Host = %q, want %q", got, speedTestHost)
+	}
+}
+
+// A rate-limited or challenged /__down is a property of the host, not proof
+// that the edge cannot carry traffic. It must downgrade the attempt to a note
+// instead of turning a good address red.
+func TestDownloadEndpointErrorIsNonFatal(t *testing.T) {
+	_, ip, port := newEdge(t, edgeOptions{downloadStatus: 429})
+
+	cfg := baseConfig(port)
+	cfg.DownloadBytes = 64 * 1024
+
+	a := Probe(context.Background(), ip, cfg).Attempts[0]
+	if !a.Ok() {
+		t.Fatalf("a rate-limited speed endpoint disqualified a good edge: %s", a.Err)
+	}
+	if !a.DownloadTested {
+		t.Fatal("download was not marked tested")
+	}
+	if !strings.Contains(a.Note, "429") {
+		t.Errorf("note should mention the status, got %q", a.Note)
 	}
 }
 

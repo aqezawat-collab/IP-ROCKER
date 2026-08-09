@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Qezawat/IP-ROCKER/internal/cfranges"
 	"github.com/Qezawat/IP-ROCKER/internal/probe"
 	"github.com/Qezawat/IP-ROCKER/internal/score"
 )
@@ -25,6 +26,8 @@ const (
 	rowReputation
 	rowStrict
 	rowTopN
+	rowRanges
+	rowRangesList
 )
 
 // pill is one choice on a setup row. A zero Custom marks the free-entry slot.
@@ -74,6 +77,9 @@ var (
 	offOnPills     = pills("Off", "On")
 	topPills       = pills("10", "25", "50", "100", "All")
 	topValues      = []int{10, 25, 50, 100, 0}
+	// Ranges scope: 0 = built-in Cloudflare ranges, 1 = built-in plus the
+	// pasted list, 2 = the pasted list alone.
+	rangesPills = pills("Full CF ranges", "Add custom", "Only custom")
 )
 
 // settings is the setup page's state: an index per row plus any custom entry.
@@ -93,6 +99,9 @@ type settings struct {
 	repIdx      int // 0 = on
 	strictIdx   int // 0 = off
 	topIdx      int
+	// rangesIdx picks the scan scope; rangesText is the pasted IP/CIDR list.
+	rangesIdx  int
+	rangesText string
 }
 
 func defaultSettings() settings {
@@ -108,6 +117,7 @@ func defaultSettings() settings {
 		repIdx:     0,
 		strictIdx:  0,
 		topIdx:     1,
+		rangesIdx:  0,
 	}
 }
 
@@ -171,14 +181,47 @@ func (s settings) strict() bool { return s.strictIdx == 1 }
 
 func (s settings) topN() int { return topValues[s.topIdx] }
 
+// ranges returns the validated custom ranges, or nil when none are set.
+func (s settings) ranges() ([]string, error) {
+	if strings.TrimSpace(s.rangesText) == "" {
+		return nil, nil
+	}
+	return cfranges.ParseCustomList(s.rangesText)
+}
+
+func (s settings) customRangeCount() int {
+	r, err := s.ranges()
+	if err != nil {
+		return 0
+	}
+	return len(r)
+}
+
+// rangesSummary is the pill text for the list row: a count, not the entries,
+// because the entries can be arbitrarily long and the pill has to fit a phone.
+func (s settings) rangesSummary() string {
+	switch n := s.customRangeCount(); {
+	case n == 0:
+		return "none yet — press c"
+	case n == 1:
+		return "1 range"
+	default:
+		return fmt.Sprintf("%d ranges", n)
+	}
+}
+
 // rows returns the visible rows. The download-dependent rows are hidden when the
-// download test is off, because a knob that cannot act should not be shown.
+// download test is off, because a knob that cannot act should not be shown. The
+// paste row appears only once a custom scope is selected, for the same reason.
 func (s settings) rows() []setupRow {
 	out := []setupRow{rowCount, rowWorkers, rowPorts, rowTimeout, rowTries, rowDownload}
 	if s.downloadBytes() > 0 {
 		out = append(out, rowMinSpeed)
 	}
-	out = append(out, rowUpload, rowReputation, rowStrict, rowTopN)
+	out = append(out, rowUpload, rowReputation, rowStrict, rowTopN, rowRanges)
+	if s.rangesIdx != 0 {
+		out = append(out, rowRangesList)
+	}
 	return out
 }
 
@@ -206,6 +249,10 @@ func (s settings) pillsFor(r setupRow) ([]pill, int) {
 		return offOnPills, s.strictIdx
 	case rowTopN:
 		return topPills, s.topIdx
+	case rowRanges:
+		return rangesPills, s.rangesIdx
+	case rowRangesList:
+		return []pill{{label: s.rangesSummary()}}, 0
 	}
 	return nil, 0
 }
@@ -234,6 +281,10 @@ func (s *settings) setIdx(r setupRow, i int) {
 		s.strictIdx = i
 	case rowTopN:
 		s.topIdx = i
+	case rowRanges:
+		s.rangesIdx = i
+	case rowRangesList:
+		// The list row has nothing to cycle; it only opens the editor.
 	}
 }
 
@@ -263,6 +314,10 @@ func rowLabel(r setupRow) string {
 		return "Strict"
 	case rowTopN:
 		return "Show top"
+	case rowRanges:
+		return "Ranges"
+	case rowRangesList:
+		return "Custom"
 	}
 	return ""
 }
@@ -324,6 +379,17 @@ func (s settings) hintFor(r setupRow) string {
 		return "clean, stable, fast and WebSocket-capable only; far fewer results"
 	case rowTopN:
 		return "how many rows the result table prints"
+	case rowRanges:
+		switch s.rangesIdx {
+		case 1:
+			return "built-in Cloudflare ranges plus your pasted list"
+		case 2:
+			return "only your pasted list; the built-in ranges are ignored"
+		default:
+			return "the built-in Cloudflare edge ranges"
+		}
+	case rowRangesList:
+		return "paste IPs or CIDRs, one per line or comma-separated; bare IPs become /32; # comments ignored"
 	}
 	return ""
 }
@@ -349,12 +415,21 @@ func (s settings) costLine() string {
 	if u := s.uploadBytes(); u > 0 {
 		parts = append(parts, fmt.Sprintf("%s uploaded per answering address", humanBytes(u)))
 	}
+	switch s.rangesIdx {
+	case 1:
+		parts = append(parts, "built-in + custom ranges")
+	case 2:
+		parts = append(parts, "only custom ranges")
+	}
 	return strings.Join(parts, "  ·  ")
 }
 
 // customPrompt describes the free-entry field for a row, or "" when the row has
 // no custom slot selected.
 func (s settings) customPrompt(r setupRow) (prompt, initial string) {
+	if r == rowRangesList {
+		return "paste IPs or CIDRs, one per line or comma-separated", s.rangesText
+	}
 	ps, idx := s.pillsFor(r)
 	if idx != len(ps)-1 || !ps[len(ps)-1].custom {
 		return "", ""
@@ -373,6 +448,21 @@ func (s settings) customPrompt(r setupRow) (prompt, initial string) {
 }
 
 func (s *settings) applyCustom(r setupRow, raw string) error {
+	if r == rowRangesList {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			s.rangesText = ""
+			return nil
+		}
+		// Validated on submit so a typo is fixed in the editor, not discovered
+		// after the scan starts.
+		if _, err := cfranges.ParseCustomList(raw); err != nil {
+			return err
+		}
+		s.rangesText = raw
+		return nil
+	}
+
 	raw = strings.TrimSpace(strings.ReplaceAll(raw, ",", ""))
 	if raw == "" {
 		return nil

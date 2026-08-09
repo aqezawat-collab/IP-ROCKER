@@ -9,8 +9,8 @@ package score
 
 import (
 	"math"
-	"strconv"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/Qezawat/IP-ROCKER/internal/probe"
@@ -228,6 +228,8 @@ func Evaluate(r *probe.Result, rep *reputation.Info, c Criteria) *Candidate {
 			"answered in under 250 ms but carried no data — likely a middlebox, not the edge")
 	}
 
+	cand.Notes = append(cand.Notes, stats.notes...)
+
 	if rep != nil {
 		cand.Notes = append(cand.Notes, rep.Reasons...)
 	}
@@ -261,6 +263,7 @@ type stats struct {
 	holdTested       bool
 	wsOk             bool
 	lastErr          string
+	notes            []string
 }
 
 func summarise(r *probe.Result) stats {
@@ -275,6 +278,9 @@ func summarise(r *probe.Result) stats {
 	for _, a := range r.Attempts {
 		if a.Err != "" {
 			s.lastErr = a.Err
+		}
+		if a.Note != "" {
+			s.notes = append(s.notes, a.Note)
 		}
 		if a.TLSOk {
 			s.tlsOk = true

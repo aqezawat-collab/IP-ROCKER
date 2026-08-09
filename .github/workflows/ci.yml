@@ -59,6 +59,25 @@ jobs:
       - name: Install NDK
         run: sdkmanager --install "ndk;27.2.12479018" > /dev/null
 
+      - name: Resolve APK version
+        id: v
+        run: |
+          # A debug APK built from a tag push carries the release version; any
+          # other build is a dev build named after the commit. Either way the
+          # APK no longer falls back to the hardcoded 1.0.0, so Settings shows
+          # which build is actually installed.
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+            VER="${TAG#v}"
+            VER="${VER#.}"
+          else
+            VER="dev-$(git rev-parse --short=7 HEAD)"
+          fi
+          CODE=$(git rev-list --count HEAD)
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "ANDROID_VERSION_NAME=$VER" >> "$GITHUB_ENV"
+          echo "ANDROID_VERSION_CODE=$CODE" >> "$GITHUB_ENV"
+
       - name: Build Go core into an AAR
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/27.2.12479018

@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -182,19 +183,23 @@ type Client struct {
 	cache map[string]*Info
 }
 
-// NewClient returns a Client with sane defaults for mobile networks.
+// NewClient returns a Client with sane defaults for mobile networks. The
+// lookup timeout is deliberately short: a provider that has not answered within
+// a few seconds on a mobile link is usually not reachable at all (censorship
+// blocks the endpoint), and stinting here means the scan stalls for minutes in
+// its reputation phase instead of finishing with measurement-only results.
 func NewClient() *Client {
 	return &Client{
 		HTTP: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: 10 * time.Second,
 			Transport: &http.Transport{
 				Proxy:               http.ProxyFromEnvironment,
 				MaxIdleConns:        8,
 				IdleConnTimeout:     60 * time.Second,
-				TLSHandshakeTimeout: 15 * time.Second,
+				TLSHandshakeTimeout: 5 * time.Second,
 			},
 		},
-		Timeout: 30 * time.Second,
+		Timeout: 8 * time.Second,
 		cache:   make(map[string]*Info),
 	}
 }
@@ -264,6 +269,16 @@ func (c *Client) LookupBulk(ctx context.Context, ips []net.IP) (map[string]*Info
 			// unreachable provider for a clean result.
 			for _, s := range chunk {
 				out[s] = &Info{IP: s, Err: err.Error()}
+			}
+			// An unreachable provider fails every chunk identically, so waiting
+			// out the timeout on each one only stalls the scan in its reputation
+			// phase. Mark the rest failed and stop; the one failure a later chunk
+			// could dodge is a rate limit, which is not a connection error.
+			if isUnreachable(err) {
+				for _, s := range pending[start+len(chunk):] {
+					out[s] = &Info{IP: s, Err: err.Error()}
+				}
+				return out, firstErr
 			}
 			continue
 		}
@@ -429,6 +444,29 @@ func crawlerFlag(raw json.RawMessage) bool {
 		if s == "" || strings.EqualFold(s, "CloudflareBot") {
 			return false
 		}
+		return true
+	}
+	return false
+}
+
+// isUnreachable reports whether a chunk failure means the provider itself is out
+// of reach rather than the request being rejected. Dial and TLS failures and
+// timeouts indicate censorship or a dead endpoint, and will repeat for every
+// chunk; an HTTP status like 429 is per-request and a later chunk might dodge it.
+func isUnreachable(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		return true
+	}
+	// TLS handshake failures surface as tls errors rather than a *net.OpError
+	// on some Go versions and transports.
+	if strings.Contains(err.Error(), "handshake") {
 		return true
 	}
 	return false

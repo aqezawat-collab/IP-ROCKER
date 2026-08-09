@@ -10,11 +10,17 @@ android {
     compileSdk = 35
 
     // Version metadata is injected by CI from the git tag so a release APK is
-    // always traceable to a commit. Local builds fall back to 1.0.0.
+    // always traceable to a commit. Local builds fall back to dev-<short sha>
+    // (versionCode = commit count, so upgrades are monotonic); only when git is
+    // unavailable does the build fall all the way back to 1.0.0.
     val appVersionName: String = System.getenv("ANDROID_VERSION_NAME")
-        ?.takeIf { it.isNotBlank() } ?: "1.0.0"
+        ?.takeIf { it.isNotBlank() }
+        ?: gitOutput("rev-parse", "--short=7", "HEAD")?.let { "dev-$it" }
+        ?: "1.0.0"
     val appVersionCode: Int = System.getenv("ANDROID_VERSION_CODE")
-        ?.toIntOrNull() ?: 1
+        ?.toIntOrNull()
+        ?: gitOutput("rev-list", "--count", "HEAD")?.toIntOrNull()
+        ?: 1
 
     defaultConfig {
         applicationId = "com.qezawat.iprocker"
@@ -99,6 +105,20 @@ android {
         abortOnError = false
     }
 }
+
+/**
+ * Runs git and returns trimmed stdout, or null on any failure (no git, not a
+ * repo, command error). Used only to derive a traceable fallback version for
+ * local builds, so it must never break the build.
+ */
+fun gitOutput(vararg args: String): String? = runCatching {
+    val p = ProcessBuilder(listOf("git") + args)
+        .redirectErrorStream(false)
+        .start()
+    val out = p.inputStream.bufferedReader().readText().trim()
+    p.waitFor()
+    out.takeIf { p.exitValue() == 0 && it.isNotBlank() }
+}.getOrNull()
 
 dependencies {
     // The Go scanner core, produced by gomobile into app/libs/iprocker.aar.

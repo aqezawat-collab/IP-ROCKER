@@ -312,7 +312,7 @@ func (s *Scanner) Run(ctx context.Context) (*Report, error) {
 
 	cands := make([]*score.Candidate, 0, len(snapshot))
 	for _, r := range snapshot {
-		cands = append(cands, score.Evaluate(r, repMap[r.IP.String()], s.opts.Criteria))
+		cands = append(cands, score.Evaluate(r, repMap[r.IP.String()], effectiveCriteria(s.opts.Criteria, repErrText != "" || s.opts.SkipReputation)))
 	}
 	score.Rank(cands)
 
@@ -403,6 +403,20 @@ func (s *Scanner) report(p Progress) {
 	if s.opts.Report != nil {
 		s.opts.Report(p)
 	}
+}
+
+// effectiveCriteria decides what strictness applies to the final ranking.
+//
+// Strict mode demands a verified-clean reputation, which an unavailable provider
+// cannot supply. Keeping the requirement would turn the whole scan into an
+// empty, all-red list every time the network blocks the provider (or the user
+// turned reputation off), so it degrades to measurement-only ranking and the
+// report carries the reason.
+func effectiveCriteria(crit score.Criteria, reputationUnavailable bool) score.Criteria {
+	if reputationUnavailable && crit.RequireClean {
+		crit.RequireClean = false
+	}
+	return crit
 }
 
 func anyOk(r *probe.Result) bool {

@@ -38,6 +38,7 @@ import com.qezawat.iprocker.ui.theme.RockerOutline
 import com.qezawat.iprocker.ui.theme.RockerSurface
 import com.qezawat.iprocker.ui.theme.RockerSurfaceHigh
 import com.qezawat.iprocker.ui.theme.TextSecondary
+import com.qezawat.iprocker.ui.theme.VerdictClean
 import com.qezawat.iprocker.ui.theme.VerdictDirty
 
 /**
@@ -56,7 +57,11 @@ fun ResultCard(
     modifier: Modifier = Modifier,
 ) {
     val verdict = candidate.verdictLevel
-    val accent = if (candidate.healthy) verdict.color() else VerdictDirty
+    // A usable address is green regardless of whether reputation could be
+    // checked: "healthy" already means it passed every hard requirement, so an
+    // unavailable reputation provider must not turn a working edge grey or red.
+    // The verdict badge below still carries the reputation nuance.
+    val accent = if (candidate.healthy) VerdictClean else VerdictDirty
 
     Column(
         modifier = modifier

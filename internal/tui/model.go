@@ -792,8 +792,8 @@ func (m Model) viewResults() string {
 	}
 
 	if m.report.ReputationError != "" {
-		sb.WriteString("\n  " + styWarn.Render("reputation incomplete: "+m.report.ReputationError) + "\n")
-		sb.WriteString("  " + styDim.Render("addresses above are ranked on measurement only, not confirmed clean") + "\n")
+		sb.WriteString("\n  " + styWarn.Render("reputation check failed: "+m.report.ReputationError) + "\n")
+		sb.WriteString("  " + styDim.Render("addresses above are usable on measurement alone, not verified clean") + "\n")
 	}
 	if m.linkNote != "" {
 		sb.WriteString("\n  " + styGood.Render(m.linkNote) + "\n")

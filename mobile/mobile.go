@@ -13,9 +13,9 @@ package mobile
 
 import (
 	"context"
-	"net"
 	"encoding/json"
 	"fmt"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -76,13 +76,13 @@ type ScanRequest struct {
 // exhausting sockets, and the reset-detecting idle hold enabled.
 func NewScanRequest() *ScanRequest {
 	return &ScanRequest{
-		count:         400,
-		concurrency:   48,
-		port:          443,
-		mode:          "http",
-		tries:         3,
-		timeoutMs:     6000,
-		holdMs:        3000,
+		count:       400,
+		concurrency: 48,
+		port:        443,
+		mode:        "http",
+		tries:       3,
+		timeoutMs:   6000,
+		holdMs:      3000,
 		// A megabyte is the smallest sample that reliably separates a slow
 		// middlebox from a real edge; a 256 KB fetch finishes inside the noise
 		// on either.

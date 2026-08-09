@@ -114,8 +114,8 @@ class ScanViewModel(app: Application) : AndroidViewModel(app) {
                     is ScannerBridge.Event.Finished -> _state.update {
                         val note = when {
                             event.report.reputationError.isNotEmpty() ->
-                                "Reputation data incomplete: ${event.report.reputationError}. " +
-                                    "Results are ranked on measurement only and are not confirmed clean."
+                                "Reputation check failed (${event.report.reputationError}). " +
+                                    "Addresses below are usable on measurement alone but not verified clean."
                             event.report.cleanCount == 0 && event.report.hits > 0 ->
                                 "${event.report.hits} addresses answered but none passed every check. " +
                                     "Try turning off Strict, or scan more addresses."

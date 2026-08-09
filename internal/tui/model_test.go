@@ -337,7 +337,7 @@ func TestReputationOutageIsStated(t *testing.T) {
 	if !strings.Contains(out, "429 from ipapi.is") {
 		t.Fatalf("outage not surfaced:\n%s", out)
 	}
-	if !strings.Contains(out, "not confirmed clean") {
+	if !strings.Contains(out, "not verified clean") {
 		t.Fatalf("outage shown without the caveat:\n%s", out)
 	}
 }

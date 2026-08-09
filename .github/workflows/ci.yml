@@ -66,12 +66,19 @@ jobs:
       - name: Resolve APK version
         id: v
         run: |
-          # A debug APK built from a tag push carries the release version; any
-          # other build is a dev build named after the commit. Either way the
-          # APK no longer falls back to the hardcoded 1.0.0, so Settings shows
-          # which build is actually installed.
+          # A debug APK built from a tagged commit carries that release version
+          # (whether the tag triggered the run or the same commit was pushed to
+          # main). Anything else is a dev build named after the commit. Either
+          # way the APK no longer falls back to the hardcoded 1.0.0, so Settings
+          # shows which build is actually installed.
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             TAG="${GITHUB_REF#refs/tags/}"
+          elif TAG="$(git describe --tags --exact-match HEAD 2>/dev/null)"; then
+            :
+          else
+            TAG=""
+          fi
+          if [ -n "$TAG" ]; then
             VER="${TAG#v}"
             VER="${VER#.}"
           else

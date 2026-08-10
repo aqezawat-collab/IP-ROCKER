@@ -336,6 +336,10 @@ func (c *Client) fetchChunk(ctx context.Context, ips []string) (map[string]*Info
 	if resp.StatusCode == http.StatusTooManyRequests {
 		return nil, fmt.Errorf("reputation provider rate limit reached (HTTP 429)")
 	}
+	// Handle HTTP 403 Forbidden - provider API key or access issue
+	if resp.StatusCode == http.StatusForbidden {
+		return nil, fmt.Errorf("reputation provider access denied (HTTP 403) - API endpoint may require authentication or be blocked")
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("reputation provider returned HTTP %d: %s",
 			resp.StatusCode, snippet(raw))
@@ -452,10 +456,16 @@ func crawlerFlag(raw json.RawMessage) bool {
 // isUnreachable reports whether a chunk failure means the provider itself is out
 // of reach rather than the request being rejected. Dial and TLS failures and
 // timeouts indicate censorship or a dead endpoint, and will repeat for every
-// chunk; an HTTP status like 429 is per-request and a later chunk might dodge it.
+// chunk; an HTTP status like 429 or 403 is per-request and behavior depends on nature of error.
 func isUnreachable(err error) bool {
 	if err == nil {
 		return false
+	}
+	// Check for specific error messages that indicate the provider is inaccessible
+	errStr := err.Error()
+	if strings.Contains(errStr, "HTTP 403") {
+		// HTTP 403 might be temporary or permanent, treat as unreachable to fail fast
+		return true
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return true
@@ -466,7 +476,7 @@ func isUnreachable(err error) bool {
 	}
 	// TLS handshake failures surface as tls errors rather than a *net.OpError
 	// on some Go versions and transports.
-	if strings.Contains(err.Error(), "handshake") {
+	if strings.Contains(errStr, "handshake") {
 		return true
 	}
 	return false

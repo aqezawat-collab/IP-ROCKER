@@ -44,7 +44,7 @@ data class UiState(
     val visibleResults: List<Candidate>
         get() {
             val r = report
-            // When the report has no candidates (e.g. reputation phase timed
+            // When the report has no candidates (e.g. scan ended early
             // out), fall back to live hits so the user never sees an empty list
             // after a scan that clearly found addresses.
             if (r == null || r.candidates.isEmpty()) {
@@ -218,7 +218,7 @@ class ScanViewModel(app: Application) : AndroidViewModel(app) {
         val live = _state.value.liveHits
 
         // Prefer the authoritative report, but fall back to live hits when the
-        // report is absent OR its candidate list is empty (e.g. reputation
+        // report is absent OR its candidate list is empty (e.g. scan
         // phase timed out after probing found hundreds of addresses).
         val source: List<Candidate> = when {
             report != null && report.candidates.isNotEmpty() ->

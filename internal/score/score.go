@@ -60,7 +60,7 @@ type Candidate struct {
 	// Healthy is false when the address failed a hard requirement, in which
 	// case it is reported but never recommended.
 	Healthy bool `json:"healthy"`
-	// Verdict is always unknown when reputation is not available.
+	// Verdict is always unknown; kept for JSON compatibility with older UIs.
 	Verdict string `json:"verdict"`
 	// Notes explains the outcome to the user.
 	Notes []string `json:"notes,omitempty"`

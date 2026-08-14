@@ -18,7 +18,7 @@ import kotlinx.coroutines.flow.map
  *
  * Defaults are chosen for a phone on a metered mobile connection: a few hundred
  * addresses, a download sample large enough to be meaningful but small enough
- * not to burn data, and the stability and reputation checks on, because those
+ * not to burn data, and the stability check on, because that
  * are the two things that separate a usable address from one that merely pings.
  */
 data class ScanSettings(

@@ -264,7 +264,7 @@ private fun ControlCard(
             // working ones and also offers to save them as working_ips.txt.
             // Show copy button whenever there are results — from the final report
             // or from live hits that streamed in during probing.  A scan that
-            // timed out during reputation checking still has usable Phase 1 data.
+            // timed out during probing still has usable Phase 1 data.
             if (state.report?.candidates?.isNotEmpty() == true || state.liveHits.isNotEmpty()) {
                 IconButton(
                     onClick = onCopyPhase1,
@@ -305,7 +305,7 @@ private fun ControlCard(
                 Spacer(Modifier.height(12.dp))
                 ScanProgressBar(
                     fraction = state.progressFraction,
-                    // The reputation phase has no per-address total, so an
+                    // The probing phase has no per-address total, so an
                     // indeterminate bar is honest rather than a fake percentage.
                     indeterminate = state.total <= 0 || state.phase.startsWith("checking"),
                 )

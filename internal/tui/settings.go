@@ -172,8 +172,6 @@ func (s settings) minSpeedKBps() float64 {
 
 func (s settings) uploadBytes() int64 { return uploadValues[s.upIdx] }
 
-func (s settings) reputation() bool { return s.repIdx == 0 }
-
 func (s settings) strict() bool { return s.strictIdx == 1 }
 
 func (s settings) topN() int { return topValues[s.topIdx] }
@@ -215,7 +213,7 @@ func (s settings) rows() []setupRow {
 	if s.downloadBytes() > 0 {
 		out = append(out, rowMinSpeed)
 	}
-	out = append(out, rowUpload, rowReputation, rowStrict, rowTopN, rowRanges)
+	out = append(out, rowUpload, rowStrict, rowTopN, rowRanges)
 	if s.rangesIdx != 0 {
 		out = append(out, rowRangesList)
 	}
@@ -240,8 +238,6 @@ func (s settings) pillsFor(r setupRow) ([]pill, int) {
 		return minSpeedPills, s.minIdx
 	case rowUpload:
 		return uploadPills, s.upIdx
-	case rowReputation:
-		return onOffPills, s.repIdx
 	case rowStrict:
 		return offOnPills, s.strictIdx
 	case rowTopN:
@@ -272,8 +268,6 @@ func (s *settings) setIdx(r setupRow, i int) {
 		s.minIdx = i
 	case rowUpload:
 		s.upIdx = i
-	case rowReputation:
-		s.repIdx = i
 	case rowStrict:
 		s.strictIdx = i
 	case rowTopN:
@@ -305,8 +299,6 @@ func rowLabel(r setupRow) string {
 		return "Min speed"
 	case rowUpload:
 		return "UL sample"
-	case rowReputation:
-		return "Reputation"
 	case rowStrict:
 		return "Strict"
 	case rowTopN:
@@ -370,8 +362,6 @@ func (s settings) hintFor(r setupRow) string {
 		return "discards edges that answer and hold but cannot carry traffic"
 	case rowUpload:
 		return "a proxy needs both directions; upload costs the same data upstream"
-	case rowReputation:
-		return "ipapi.is abuse/proxy lookup; off means no address can be called clean"
 	case rowStrict:
 		return "clean, stable, fast and WebSocket-capable only; far fewer results"
 	case rowTopN:

@@ -6,7 +6,7 @@
 // rather than weighted: on a long path (Iran -> Frankfurt, etc.) the reachable
 // edges live in blocks our earlier hand-picked "cleanest" weights would have
 // under-sampled, so we now draw uniformly across the whole space and let the
-// probe + reputation stages do the filtering. Every block is eligible; weights
+// probe + scoring stages do the filtering. Every block is eligible; weights
 // only bias the draw, they never discard.
 //
 // To use a custom scope, pass ExtraCIDRs (Settings -> Custom Ranges / file

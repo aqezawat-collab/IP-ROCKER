@@ -358,33 +358,6 @@ func reportPayload(r *scanner.Report) map[string]any {
 	}
 }
 
-// LookupIP rates a single address and returns the reputation record as JSON.
-// This powers the address details sheet in the app.
-func LookupIP(ip string) (string, error) {
-	ip = strings.TrimSpace(ip)
-	if ip == "" {
-		return "", fmt.Errorf("no address given")
-	}
-	parsed := parseIP(ip)
-	if parsed == nil {
-		return "", fmt.Errorf("%q is not a valid IP address", ip)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	client := reputation.NewClient()
-	info, err := client.Lookup(ctx, parsed)
-	if err != nil {
-		return "", err
-	}
-	b, err := json.Marshal(info)
-	if err != nil {
-		return "", err
-	}
-	return string(b), nil
-}
-
 // BlockProfileJSON returns the built-in Cloudflare ranges with their measured
 // cleanliness weights, so the app can explain why it prefers some blocks.
 func BlockProfileJSON() string {

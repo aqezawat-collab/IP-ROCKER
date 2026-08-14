@@ -387,15 +387,11 @@ func probeHTTP(ctx context.Context, ip net.IP, sni string, cfg Config) Attempt {
 		att.DownloadTested = true
 		bps, err := measureDownload(ctx, client, scheme, speedTestHost, cfg)
 		if err != nil {
-			if isEndpointError(err) {
-				// The endpoint refused the request (rate limit, challenge).
-				// That is a property of the host, not of this edge carrying
-				// traffic, so it must not turn a good address red.
-				att.Note = "download: " + err.Error()
-			} else {
-				att.Err = "download: " + err.Error()
-				return att
-			}
+			// Any download failure is recorded as a note, never fatal.
+			// Censored networks routinely reset connections mid-transfer,
+			// and a middlebox rate-limiting the speed endpoint says nothing
+			// about whether this edge can carry proxied traffic.
+			att.Note = "download: " + err.Error()
 		} else {
 			att.DownloadBps = bps
 		}

@@ -72,7 +72,6 @@ class ScannerBridge {
         // A speed floor is only meaningful when a download sample is taken.
         req.setMinSpeedKBps(if (settings.speedTest) settings.minSpeedKBps else 0.0)
         req.setStrict(settings.strict)
-        req.setSkipReputation(!settings.reputationCheck)
         req.setTopN(settings.topN)
         req.setExportMode(settings.exportMode)
         req.setImportMode(settings.importMode)
@@ -105,9 +104,6 @@ class ScannerBridge {
     fun stop() {
         goScanner.stop()
     }
-
-    /** Looks up one address on demand for the details sheet. */
-    fun lookup(ip: String): ReputationInfo = IPRockerJson.decodeFromString(Mobile.lookupIP(ip))
 
     /** The measured cleanliness profile of the built-in ranges. */
     fun blockProfile(): List<BlockInfo> =

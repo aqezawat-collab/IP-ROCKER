@@ -62,7 +62,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.qezawat.iprocker.ui.components.IpDetailsSheet
 import com.qezawat.iprocker.ui.components.ResultCard
 import com.qezawat.iprocker.ui.components.RockerCard
 import com.qezawat.iprocker.ui.components.ScanProgressBar
@@ -232,15 +231,6 @@ fun ScanScreen(viewModel: ScanViewModel = viewModel()) {
             onDismiss = { showSettings = false },
         )
     }
-
-    if (state.details != null || state.detailsLoading || state.detailsError != null) {
-        IpDetailsSheet(
-            info = state.details,
-            loading = state.detailsLoading,
-            error = state.detailsError,
-            onDismiss = viewModel::closeDetails,
-        )
-    }
 }
 
 @Composable
@@ -274,7 +264,7 @@ private fun ControlCard(
             // working ones and also offers to save them as working_ips.txt.
             // Show copy button whenever there are results — from the final report
             // or from live hits that streamed in during probing.  A scan that
-            // timed out during reputation checking still has usable Phase 1 data.
+            // timed out during probing still has usable Phase 1 data.
             if (state.report?.candidates?.isNotEmpty() == true || state.liveHits.isNotEmpty()) {
                 IconButton(
                     onClick = onCopyPhase1,
@@ -315,7 +305,7 @@ private fun ControlCard(
                 Spacer(Modifier.height(12.dp))
                 ScanProgressBar(
                     fraction = state.progressFraction,
-                    // The reputation phase has no per-address total, so an
+                    // The probing phase has no per-address total, so an
                     // indeterminate bar is honest rather than a fake percentage.
                     indeterminate = state.total <= 0 || state.phase.startsWith("checking"),
                 )

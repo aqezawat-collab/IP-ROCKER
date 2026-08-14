@@ -13,7 +13,6 @@ import (
 	"github.com/Qezawat/IP-ROCKER/internal/cfranges"
 	"github.com/Qezawat/IP-ROCKER/internal/netports"
 	"github.com/Qezawat/IP-ROCKER/internal/probe"
-	"github.com/Qezawat/IP-ROCKER/internal/reputation"
 	"github.com/Qezawat/IP-ROCKER/internal/score"
 )
 
@@ -24,7 +23,6 @@ const (
 	PhaseIdle Phase = iota
 	PhaseProbing
 	PhaseNeighbors
-	PhaseReputation
 	PhaseDone
 )
 
@@ -34,8 +32,6 @@ func (p Phase) String() string {
 		return "probing"
 	case PhaseNeighbors:
 		return "expanding around hits"
-	case PhaseReputation:
-		return "checking reputation"
 	case PhaseDone:
 		return "done"
 	default:
@@ -69,9 +65,6 @@ type Options struct {
 	NeighborPerHit int
 	NeighborMax    int
 
-	// SkipReputation runs the hunt fully offline.
-	SkipReputation bool
-
 	// TopN, when > 0, caps how many candidates are kept for the report and
 	// export. It mirrors the TUI's "Phase 2 picks" — the scan still probes
 	// Count addresses, but only the best TopN are surfaced.
@@ -86,7 +79,7 @@ type Options struct {
 	// so implementations must be safe for concurrent use.
 	Report func(Progress)
 	// OnHit is called as soon as an address passes the probe stage, before
-	// reputation is known, so a UI can show results streaming in.
+	// rating, so a UI can show results streaming in.
 	OnHit func(*score.Candidate)
 }
 
@@ -128,7 +121,7 @@ type Progress struct {
 	Total    int64
 	Hits     int64
 	InFlight int64
-	// Message carries a human-readable note, such as a provider error.
+	// Message carries a human-readable note.
 	Message string
 }
 
@@ -138,9 +131,6 @@ type Report struct {
 	Tested     int64
 	Hits       int64
 	Duration   time.Duration
-	// ReputationError is set when rating could not be completed. Candidates
-	// are still returned, but none of them are treated as verified clean.
-	ReputationError string
 }
 
 // Clean returns only the candidates that passed every requirement.
@@ -176,7 +166,6 @@ func (r *Report) ExportText(mode string, limit int) string {
 // Scanner runs hunts.
 type Scanner struct {
 	opts Options
-	rep  *reputation.Client
 
 	tested   atomic.Int64
 	hits     atomic.Int64
@@ -185,10 +174,7 @@ type Scanner struct {
 
 // New builds a Scanner.
 func New(opts Options) *Scanner {
-	opts = opts.WithDefaults()
-	rc := reputation.NewClient()
-	rc.Disabled = opts.SkipReputation
-	return &Scanner{opts: opts, rep: rc}
+	return &Scanner{opts: opts}
 }
 
 // Run executes a full hunt and blocks until it finishes or ctx is cancelled.
@@ -260,59 +246,14 @@ func (s *Scanner) Run(ctx context.Context) (*Report, error) {
 		}
 	}
 
-	// Pass 3: rate every address that answered. Only survivors are sent to the
-	// provider, which keeps the request count to a handful even for big scans.
 	mu.Lock()
 	snapshot := make([]*probe.Result, len(results))
 	copy(snapshot, results)
 	mu.Unlock()
 
-	var toRate []net.IP
-	// An address that answered on several ports appears once per port, but its
-	// reputation is a property of the address, so it is only looked up once.
-	rated := make(map[string]struct{}, len(snapshot))
-	for _, r := range snapshot {
-		if !anyOk(r) {
-			continue
-		}
-		key := r.IP.String()
-		if _, dup := rated[key]; dup {
-			continue
-		}
-		rated[key] = struct{}{}
-		toRate = append(toRate, r.IP)
-	}
-
-	repMap := map[string]*reputation.Info{}
-	var repErrText string
-	if len(toRate) > 0 && !s.opts.SkipReputation {
-		s.report(Progress{
-			Phase:  PhaseReputation,
-			Tested: s.tested.Load(),
-			Hits:   s.hits.Load(),
-			Total:  int64(len(toRate)),
-		})
-		m, err := s.rep.LookupBulk(ctx, toRate)
-		repMap = m
-		if err != nil {
-			// A partial failure (one 429'd chunk) should not mark the whole
-			// report as unverified when most addresses rated fine.
-			ok := 0
-			for _, r := range snapshot {
-				if info := repMap[r.IP.String()]; info != nil && info.Err == "" {
-					ok++
-				}
-			}
-			if ok == 0 {
-				repErrText = err.Error()
-				s.report(Progress{Phase: PhaseReputation, Message: "reputation lookup problem: " + err.Error()})
-			}
-		}
-	}
-
 	cands := make([]*score.Candidate, 0, len(snapshot))
 	for _, r := range snapshot {
-		cands = append(cands, score.Evaluate(r, repMap[r.IP.String()], effectiveCriteria(s.opts.Criteria, repErrText != "" || s.opts.SkipReputation)))
+		cands = append(cands, score.Evaluate(r, s.opts.Criteria))
 	}
 	score.Rank(cands)
 
@@ -325,11 +266,10 @@ func (s *Scanner) Run(ctx context.Context) (*Report, error) {
 	s.report(Progress{Phase: PhaseDone, Tested: s.tested.Load(), Hits: s.hits.Load()})
 
 	return &Report{
-		Candidates:      cands,
-		Tested:          s.tested.Load(),
-		Hits:            s.hits.Load(),
-		Duration:        time.Since(start),
-		ReputationError: repErrText,
+		Candidates: cands,
+		Tested:     s.tested.Load(),
+		Hits:       s.hits.Load(),
+		Duration:   time.Since(start),
 	}, nil
 }
 
@@ -382,7 +322,7 @@ func (s *Scanner) probeStream(ctx context.Context, src <-chan net.IP, collect fu
 					}
 					mu.Unlock()
 					if s.opts.OnHit != nil {
-						s.opts.OnHit(score.Evaluate(r, nil, s.opts.Criteria))
+						s.opts.OnHit(score.Evaluate(r, s.opts.Criteria))
 					}
 				}
 				s.report(Progress{
@@ -403,20 +343,6 @@ func (s *Scanner) report(p Progress) {
 	if s.opts.Report != nil {
 		s.opts.Report(p)
 	}
-}
-
-// effectiveCriteria decides what strictness applies to the final ranking.
-//
-// Strict mode demands a verified-clean reputation, which an unavailable provider
-// cannot supply. Keeping the requirement would turn the whole scan into an
-// empty, all-red list every time the network blocks the provider (or the user
-// turned reputation off), so it degrades to measurement-only ranking and the
-// report carries the reason.
-func effectiveCriteria(crit score.Criteria, reputationUnavailable bool) score.Criteria {
-	if reputationUnavailable && crit.RequireClean {
-		crit.RequireClean = false
-	}
-	return crit
 }
 
 func anyOk(r *probe.Result) bool {

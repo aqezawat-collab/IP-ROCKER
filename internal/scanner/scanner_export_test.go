@@ -45,27 +45,6 @@ func itoa(n int) string {
 	return string(b[i:])
 }
 
-func TestEffectiveCriteriaDegradesStrictWhenReputationUnavailable(t *testing.T) {
-	strict := score.DefaultCriteria()
-	strict.RequireClean = true
-	relaxed := score.DefaultCriteria()
-	relaxed.RequireClean = false
-
-	// Reputation blocked (provider error, or user switched it off): strict
-	// degrades to measurement-only so the report is never an empty all-red list.
-	if got := effectiveCriteria(strict, true); got.RequireClean {
-		t.Fatal("strict criteria must degrade when reputation is unavailable")
-	}
-	// Non-strict criteria are untouched either way.
-	if got := effectiveCriteria(relaxed, true); got.RequireClean {
-		t.Fatal("non-strict criteria must not gain RequireClean")
-	}
-	// A provider that answered keeps strictness: clean really is required.
-	if got := effectiveCriteria(strict, false); !got.RequireClean {
-		t.Fatal("strict criteria must stay strict when reputation is available")
-	}
-}
-
 func TestExportTextPhase2Working(t *testing.T) {
 	cands := []*score.Candidate{
 		mkCand("1.2.3.4", 443, false, 90),

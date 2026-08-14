@@ -1,10 +1,4 @@
-// Package score turns raw probe measurements plus reputation data into a single
-// ranking figure.
-//
-// The ordering rule is deliberate: an address that is fast but flagged as an
-// abuse source ranks below an address that is clean and merely adequate,
-// because a flagged address produces captchas and blocks at the destination
-// even when the tunnel itself is quick.
+// Package score turns raw probe measurements into a single ranking figure.
 package score
 
 import (
@@ -12,28 +6,23 @@ import (
 	"sort"
 	"strconv"
 	"time"
-
-	"github.com/Qezawat/IP-ROCKER/internal/probe"
-	"github.com/Qezawat/IP-ROCKER/internal/reputation"
 )
 
 // Weights control how much each dimension contributes. They sum to 1.0.
 type Weights struct {
-	Reputation float64
 	Latency    float64
 	Stability  float64
 	Download   float64
 	Upload     float64
 }
 
-// DefaultWeights favour cleanliness first, then responsiveness, then raw speed.
+// DefaultWeights favour responsiveness first, then raw speed.
 func DefaultWeights() Weights {
 	return Weights{
-		Reputation: 0.35,
-		Latency:    0.25,
-		Stability:  0.20,
-		Download:   0.15,
-		Upload:     0.05,
+		Latency:   0.35,
+		Stability: 0.35,
+		Download:  0.20,
+		Upload:    0.10,
 	}
 }
 
@@ -56,8 +45,6 @@ type Candidate struct {
 	WSOk     bool   `json:"websocket_ok"`
 	TLSOk    bool   `json:"tls_ok"`
 
-	Reputation *reputation.Info `json:"reputation,omitempty"`
-
 	// Total is the composite 0..100 ranking figure.
 	Total float64 `json:"score"`
 
@@ -65,7 +52,6 @@ type Candidate struct {
 	// population is known. Latency is only meaningful relative to the other
 	// addresses in the same scan, which is not available while a single
 	// candidate is being evaluated.
-	repScore       float64
 	stabilityScore float64
 	downloadScore  float64
 	uploadScore    float64
@@ -74,9 +60,8 @@ type Candidate struct {
 	// Healthy is false when the address failed a hard requirement, in which
 	// case it is reported but never recommended.
 	Healthy bool `json:"healthy"`
-	// Verdict mirrors the reputation traffic light, or unknown when reputation
-	// was unavailable.
-	Verdict string `json:"verdict"`
+	// Verdict is always unknown; kept for JSON compatibility with older UIs.
+	Verdict string `json:"verdict,omitempty"`
 	// Notes explains the outcome to the user.
 	Notes []string `json:"notes,omitempty"`
 
@@ -90,9 +75,6 @@ type Criteria struct {
 	RequireHold bool
 	// RequireWebSocket disqualifies addresses that refused a WebSocket upgrade.
 	RequireWebSocket bool
-	// RequireClean disqualifies anything the reputation provider did not mark
-	// clean. When false, "caution" addresses are still allowed through.
-	RequireClean bool
 	// MinDownloadKBps disqualifies addresses slower than this. Zero disables.
 	MinDownloadKBps float64
 	// MaxLossPercent disqualifies addresses above this loss level.
@@ -102,12 +84,11 @@ type Criteria struct {
 	Weights    Weights
 }
 
-// DefaultCriteria is a balanced profile: proven-carrying, clean-or-caution.
+// DefaultCriteria is a balanced profile: proven-carrying.
 func DefaultCriteria() Criteria {
 	return Criteria{
 		RequireHold:      false,
 		RequireWebSocket: false,
-		RequireClean:     false,
 		MaxLossPercent:   50,
 		Weights:          DefaultWeights(),
 	}
@@ -117,34 +98,25 @@ func DefaultCriteria() Criteria {
 func StrictCriteria() Criteria {
 	c := DefaultCriteria()
 	c.RequireHold = true
-	c.RequireClean = true
 	c.RequireWebSocket = true
 	c.MinDownloadKBps = 200
 	c.MaxLossPercent = 34
-	// Deliberately generous. On a long path a perfectly usable edge sits near
-	// 700-800 ms, so a tight ceiling here would reject every reachable address
-	// and return nothing. Ranking, not this cutoff, is what surfaces the
-	// fastest of them.
 	c.MaxLatency = 2500 * time.Millisecond
 	return c
 }
 
-// Evaluate combines a probe result and its reputation record into a Candidate.
-func Evaluate(r *probe.Result, rep *reputation.Info, c Criteria) *Candidate {
+// Evaluate combines a probe result into a Candidate.
+func Evaluate(r *probe.Result, c Criteria) *Candidate {
 	if c.Weights == (Weights{}) {
 		c.Weights = DefaultWeights()
 	}
 
 	cand := &Candidate{
-		IP:         r.IP.String(),
-		Port:       r.Port,
-		Reputation: rep,
-		Verdict:    reputation.VerdictUnknown.String(),
+		IP:      r.IP.String(),
+		Port:    r.Port,
+		Verdict: "unknown",
 	}
 	cand.Endpoint = cand.IP + ":" + strconv.Itoa(cand.Port)
-	if rep != nil {
-		cand.Verdict = rep.Verdict.String()
-	}
 
 	stats := summarise(r)
 	cand.AvgLatency = stats.avg
@@ -193,23 +165,10 @@ func Evaluate(r *probe.Result, rep *reputation.Info, c Criteria) *Candidate {
 		cand.Healthy = false
 		cand.Notes = append(cand.Notes, "download below threshold")
 	}
-	if c.RequireClean {
-		if rep == nil || rep.Err != "" {
-			cand.Healthy = false
-			cand.Notes = append(cand.Notes, "reputation unverified")
-		} else if rep.Verdict != reputation.VerdictClean {
-			cand.Healthy = false
-			cand.Notes = append(cand.Notes, "reputation not clean")
-		}
-	} else if rep != nil && rep.Verdict == reputation.VerdictDirty {
-		cand.Healthy = false
-		cand.Notes = append(cand.Notes, "reputation flagged as high risk")
-	}
 
 	// A provisional total, correct for everything except latency. Latency is
 	// finalised by Rank once the whole population is visible.
 	cand.weights = c.Weights
-	cand.repScore = reputationScore(rep)
 	cand.stabilityScore = stabilityScore(stats)
 	cand.downloadScore = scale(stats.downloadBps/1024, 50, 4096, false)
 	cand.uploadScore = scale(stats.uploadBps/1024, 25, 1024, false)
@@ -229,10 +188,6 @@ func Evaluate(r *probe.Result, rep *reputation.Info, c Criteria) *Candidate {
 	}
 
 	cand.Notes = append(cand.Notes, stats.notes...)
-
-	if rep != nil {
-		cand.Notes = append(cand.Notes, rep.Reasons...)
-	}
 	return cand
 }
 
@@ -242,8 +197,7 @@ func (c *Candidate) combine(latScore float64) float64 {
 	if w == (Weights{}) {
 		w = DefaultWeights()
 	}
-	total := c.repScore*w.Reputation +
-		latScore*w.Latency +
+	total := latScore*w.Latency +
 		c.stabilityScore*w.Stability +
 		c.downloadScore*w.Download +
 		c.uploadScore*w.Upload
@@ -292,7 +246,6 @@ func summarise(r *probe.Result) stats {
 			s.held = true
 			s.holdTested = true
 		}
-		// An attempt that reported a reset during hold also counts as tested.
 		if a.Err == "connection was reset during idle hold" {
 			s.holdTested = true
 		}
@@ -337,16 +290,6 @@ func summarise(r *probe.Result) stats {
 	return s
 }
 
-// reputationScore converts a risk percentage into a 0..100 sub-score. An
-// unverified address scores mid-range rather than zero, so a provider outage
-// does not erase all ranking information.
-func reputationScore(rep *reputation.Info) float64 {
-	if rep != nil && rep.Err == "" {
-		return clamp(100-rep.RiskPercent, 0, 100)
-	}
-	return 50
-}
-
 // stabilityScore blends loss, jitter and the hold and WebSocket outcomes.
 func stabilityScore(s stats) float64 {
 	if s.successes == 0 {
@@ -367,9 +310,6 @@ func stabilityScore(s stats) float64 {
 // best is the smaller bound.
 func scale(v, best, worst float64, lowerIsBetter bool) float64 {
 	if v <= 0 {
-		if lowerIsBetter {
-			return 0
-		}
 		return 0
 	}
 	if lowerIsBetter {

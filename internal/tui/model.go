@@ -15,7 +15,6 @@ import (
 
 	"github.com/Qezawat/IP-ROCKER/internal/cfranges"
 	"github.com/Qezawat/IP-ROCKER/internal/netports"
-	"github.com/Qezawat/IP-ROCKER/internal/reputation"
 	"github.com/Qezawat/IP-ROCKER/internal/scanner"
 	"github.com/Qezawat/IP-ROCKER/internal/score"
 	"github.com/charmbracelet/bubbles/textarea"
@@ -202,13 +201,21 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.editing = false
 				m.errMsg = ""
 				return m, nil
-			case "ctrl+d":
+			case "ctrl+d", "enter":
 				if err := m.set.applyCustom(m.editRow, m.ta.Value()); err != nil {
 					m.errMsg = err.Error()
 					return m, nil
 				}
 				m.editing = false
 				m.errMsg = ""
+				// Return focus to the parent Ranges row so the user can start
+				// the scan without arrowing through a hidden editor row.
+				for i, r := range m.set.rows() {
+					if r == rowRanges {
+						m.rowIdx = i
+						break
+					}
+				}
 				return m, nil
 			}
 			var cmd tea.Cmd
@@ -494,7 +501,6 @@ func (m Model) startScan() (tea.Model, tea.Cmd) {
 			ExtraCIDRs: extraCIDRs,
 			OnlyExtra:  m.set.rangesIdx == 2,
 		},
-		SkipReputation: !m.set.reputation(),
 	}
 
 	// Buffered and non-blocking: a scan must never stall because the UI is mid
@@ -754,12 +760,12 @@ func (m Model) viewResults() string {
 		sb.WriteString("  " + styWarn.Render("no address passed every requirement; showing best attempts") + "\n\n")
 	}
 
-	// The full table needs ~85 columns. A phone gets IP, score, latency and the
-	// verdict mark; everything else is one keypress away on the detail page.
+	// The full table needs ~80 columns. A phone gets IP, score, latency and
+	// status; everything else is one keypress away on the detail page.
 	wide := m.width <= 0 || m.width >= 88
 	if wide {
-		sb.WriteString(styHead.Render(fmt.Sprintf("  %-16s %-5s %-6s %-8s %-8s %-10s %-5s %-6s %s",
-			"IP", "PORT", "SCORE", "LATENCY", "JITTER", "DOWNLOAD", "COLO", "RISK", "")) + "\n")
+		sb.WriteString(styHead.Render(fmt.Sprintf("  %-16s %-5s %-6s %-8s %-8s %-10s %-5s %s",
+			"IP", "PORT", "SCORE", "LATENCY", "JITTER", "DOWNLOAD", "COLO", "")) + "\n")
 	} else {
 		sb.WriteString(styHead.Render(fmt.Sprintf("  %-16s %-5s %-7s %s",
 			"IP", "SCORE", "PING", "")) + "\n")
@@ -777,23 +783,18 @@ func (m Model) viewResults() string {
 	}
 	for i := from; i < limit && i < from+visible; i++ {
 		c := list[i]
-		row := fmt.Sprintf("%-16s %-5.1f %-7s %s",
-			c.IP, c.Total, msStr(c.AvgLatencyMs), shortVerdict(c))
+		row := fmt.Sprintf("%-16s %-5.1f %-7s",
+			c.IP, c.Total, msStr(c.AvgLatencyMs))
 		if wide {
-			row = fmt.Sprintf("%-16s %-5d %-6.1f %-8s %-8s %-10s %-5s %-6s %s",
+			row = fmt.Sprintf("%-16s %-5d %-6.1f %-8s %-8s %-10s %-5s",
 				c.IP, c.Port, c.Total, msStr(c.AvgLatencyMs), msStr(c.JitterMs),
-				speedStr(c.DownloadKBps), orDash(c.Colo), riskStr(c.Reputation), verdictMark(c))
+				speedStr(c.DownloadKBps), orDash(c.Colo))
 		}
 		if i == m.resultIdx {
 			sb.WriteString(styAccent.Render(" ▸") + stySelected.Render(row) + "\n")
 		} else {
 			sb.WriteString("  " + styText.Render(row) + "\n")
 		}
-	}
-
-	if m.report.ReputationError != "" {
-		sb.WriteString("\n  " + styWarn.Render("reputation check failed: "+m.report.ReputationError) + "\n")
-		sb.WriteString("  " + styDim.Render("addresses above are usable on measurement alone, not verified clean") + "\n")
 	}
 	if m.linkNote != "" {
 		sb.WriteString("\n  " + styGood.Render(m.linkNote) + "\n")
@@ -835,29 +836,6 @@ func (m Model) viewDetail() string {
 	line("held open", yesNo(c.HeldOpen))
 	line("websocket", yesNo(c.WSOk))
 
-	if r := c.Reputation; r != nil && r.Err == "" {
-		sb.WriteString("\n")
-		line("verdict", fmt.Sprintf("%s %s", r.Verdict.Emoji(), r.Verdict))
-		line("risk", fmt.Sprintf("%.1f%%", r.RiskPercent))
-		line("abuser", yesNo(r.IsAbuser))
-		line("proxy", yesNo(r.IsProxy))
-		// Every edge is a datacentre address, so this is stated as expected
-		// rather than as a fault.
-		if m.width > 0 && m.width < 56 {
-			line("datacenter", yesNo(r.IsDatacenter))
-			sb.WriteString("  " + styDim.Render("(expected for Cloudflare)") + "\n")
-		} else {
-			line("datacenter", yesNo(r.IsDatacenter)+styDim.Render("  (expected for Cloudflare)"))
-		}
-		line("route", orDash(r.Route))
-		line("company", orDash(r.CompanyName))
-		line("abuse score", fmt.Sprintf("%.2f", r.CompanyAbuse))
-		line("location", fmt.Sprintf("%s %s", orDash(r.Country), orDash(r.City)))
-	} else if c.Reputation != nil && c.Reputation.Err != "" {
-		sb.WriteString("\n  " + styWarn.Render("reputation lookup failed: "+c.Reputation.Err) + "\n")
-		sb.WriteString("  " + styDim.Render("this address is not confirmed clean") + "\n")
-	}
-
 	if len(c.Notes) > 0 {
 		sb.WriteString("\n")
 		for _, n := range c.Notes {
@@ -889,14 +867,13 @@ func (m Model) viewAbout() string {
 	body := []string{
 		styHead.Render("How an address is ranked"),
 		"",
-		weight("reputation", "35%", "ipapi.is abuse/proxy flags per address and per route."),
-		weight("latency", "25%", "scored against the other addresses in this same scan, not "+
+		weight("latency", "35%", "scored against the other addresses in this same scan, not "+
 			"against a fixed scale. On a censored mobile path a reply faster than "+
 			"the physics allows is a middlebox answering for the edge, so it is "+
 			"not rewarded."),
-		weight("stability", "20%", "jitter, loss and surviving an idle hold."),
-		weight("download", "15%", "a real payload transfer through the edge."),
-		weight("upload", "5%", "upstream capacity, when enabled."),
+		weight("stability", "35%", "jitter, loss and surviving an idle hold."),
+		weight("download", "20%", "a real payload transfer through the edge."),
+		weight("upload", "10%", "upstream capacity, when enabled."),
 		"",
 		styHead.Render("Why a bigger timeout can be better"),
 		"",
@@ -910,7 +887,7 @@ func (m Model) viewAbout() string {
 		styHead.Render("Flags"),
 		"",
 		para("datacenter is expected — every Cloudflare edge is one."),
-		para("An address whose reputation lookup failed is never called clean."),
+		para("An address that answered but could not carry traffic is flagged."),
 	}
 	return "\n  " + strings.Join(body, "\n  ") + "\n\n" + m.keyHint("esc back") + "\n"
 }
@@ -1069,43 +1046,13 @@ func speedStr(kbps float64) string {
 	}
 }
 
-func riskStr(r *reputation.Info) string {
-	if r == nil || r.Err != "" {
-		return "n/a"
-	}
-	return fmt.Sprintf("%.0f%%", r.RiskPercent)
-}
-
 // shortVerdict is a single glyph, for the narrow results table where the word
 // would not fit beside the address.
 func shortVerdict(c *score.Candidate) string {
-	if c.Reputation == nil || c.Reputation.Err != "" {
-		return styDim.Render("?")
-	}
-	switch c.Reputation.Verdict {
-	case reputation.VerdictClean:
-		return styGood.Render("ok")
-	case reputation.VerdictCaution:
-		return styWarn.Render("!")
-	case reputation.VerdictDirty:
+	if !c.Healthy {
 		return styBad.Render("x")
 	}
-	return styDim.Render("?")
-}
-
-func verdictMark(c *score.Candidate) string {
-	if c.Reputation == nil || c.Reputation.Err != "" {
-		return styDim.Render("unrated")
-	}
-	switch c.Reputation.Verdict {
-	case reputation.VerdictClean:
-		return styGood.Render("clean")
-	case reputation.VerdictCaution:
-		return styWarn.Render("caution")
-	case reputation.VerdictDirty:
-		return styBad.Render("dirty")
-	}
-	return styDim.Render("unknown")
+	return styGood.Render("ok")
 }
 
 func yesNo(b bool) string {

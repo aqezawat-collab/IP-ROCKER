@@ -39,30 +39,13 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.qezawat.iprocker.data.Verdict
 import com.qezawat.iprocker.ui.theme.RockerAccent
 import com.qezawat.iprocker.ui.theme.RockerOutline
 import com.qezawat.iprocker.ui.theme.RockerSurface
 import com.qezawat.iprocker.ui.theme.RockerSurfaceHigh
 import com.qezawat.iprocker.ui.theme.TextSecondary
-import com.qezawat.iprocker.ui.theme.VerdictCaution
 import com.qezawat.iprocker.ui.theme.VerdictClean
 import com.qezawat.iprocker.ui.theme.VerdictDirty
-import com.qezawat.iprocker.ui.theme.VerdictUnknown
-
-fun Verdict.color(): Color = when (this) {
-    Verdict.CLEAN -> VerdictClean
-    Verdict.CAUTION -> VerdictCaution
-    Verdict.DIRTY -> VerdictDirty
-    Verdict.UNKNOWN -> VerdictUnknown
-}
-
-fun Verdict.label(): String = when (this) {
-    Verdict.CLEAN -> "CLEAN"
-    Verdict.CAUTION -> "CAUTION"
-    Verdict.DIRTY -> "HIGH RISK"
-    Verdict.UNKNOWN -> "UNVERIFIED"
-}
 
 /**
  * A card surface used for every grouped block of content.
@@ -123,48 +106,6 @@ fun <T> ChoiceChips(
                 ),
             )
         }
-    }
-}
-
-/**
- * The traffic-light pill. The colour is always paired with a text label so the
- * information does not depend on colour perception alone.
- */
-@Composable
-fun VerdictBadge(
-    verdict: Verdict,
-    riskPercent: Double?,
-    modifier: Modifier = Modifier,
-) {
-    val tint by animateColorAsState(verdict.color(), label = "verdictColor")
-    val text = buildString {
-        if (riskPercent != null && verdict != Verdict.UNKNOWN) {
-            append("%.0f%% ".format(riskPercent))
-        }
-        append(verdict.label())
-    }
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = modifier
-            .clip(RoundedCornerShape(50))
-            .background(tint.copy(alpha = 0.16f))
-            .border(1.dp, tint.copy(alpha = 0.45f), RoundedCornerShape(50))
-            .padding(horizontal = 10.dp, vertical = 5.dp)
-            .semantics { contentDescription = "Reputation: $text" },
-    ) {
-        Box(
-            Modifier
-                .size(8.dp)
-                .clip(RoundedCornerShape(50))
-                .background(tint),
-        )
-        Spacer(Modifier.width(6.dp))
-        Text(
-            text = text,
-            style = MaterialTheme.typography.labelSmall,
-            color = tint,
-            fontWeight = FontWeight.Bold,
-        )
     }
 }
 

@@ -43,7 +43,6 @@ func main() {
 		sni         = flag.String("sni", "", "TLS server name; empty rotates Cloudflare hostnames")
 		host        = flag.String("host", "", "HTTP Host header; empty uses the SNI")
 		strict      = flag.Bool("strict", false, "only accept addresses that are clean on every axis")
-		noRep       = flag.Bool("no-reputation", false, "skip reputation lookups and run fully offline")
 		extra       = flag.String("cidr", "", "comma-separated IPs/CIDRs to include (bare IPs become /32)")
 		only        = flag.Bool("only-cidr", false, "scan only the CIDRs given by -cidr")
 		top         = flag.Int("top", 20, "how many results to print")
@@ -99,6 +98,23 @@ func main() {
 		fail(err)
 	}
 
+	// If the user supplied a positional file path, load IPs/CIDRs from it.
+	// This mirrors SenPaiScanner's ips.txt behaviour: a plain text file with
+	// one address or CIDR per line is the easiest way to feed a custom list.
+	if flag.NArg() > 0 {
+		filePath := flag.Arg(0)
+		fileCIDRs, err := loadIPList(filePath)
+		if err != nil {
+			fail(fmt.Errorf("loading %s: %w", filePath, err))
+		}
+		extraCIDRs = append(extraCIDRs, fileCIDRs...)
+		// A file-supplied list is a strong signal that the user wants only
+		// those addresses, not the built-in Cloudflare sweep.
+		if len(extraCIDRs) > 0 && !*only {
+			// keep the built-in sweep unless -only-cidr is also set
+		}
+	}
+
 	opts := scanner.Options{
 		Count:       *count,
 		Concurrency: *concurrency,
@@ -123,7 +139,6 @@ func main() {
 			OnlyExtra:  *only,
 			SkipDirty:  true,
 		},
-		SkipReputation: *noRep,
 	}
 
 	if !*quiet {
@@ -158,12 +173,6 @@ func main() {
 
 	printReport(report, *top)
 
-	if report.ReputationError != "" {
-		fmt.Fprintf(os.Stderr, "\nReputation data incomplete: %s\n"+
-			"Addresses above are ranked on measurement only and are not confirmed clean.\n",
-			report.ReputationError)
-	}
-
 	if *jsonOut != "" {
 		if err := writeJSON(*jsonOut, report); err != nil {
 			fmt.Fprintf(os.Stderr, "writing JSON: %v\n", err)
@@ -178,6 +187,25 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Clean endpoints written to %s\n", *txtOut)
 		}
 	}
+}
+
+// loadIPList reads a text file containing one IP or CIDR per line. Blank lines
+// and lines starting with # are ignored. It is the file-based equivalent of
+// the -cidr flag, allowing the user to pass ips.txt or ranges.txt directly.
+func loadIPList(path string) ([]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, raw := range strings.Split(string(data), "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		out = append(out, line)
+	}
+	return out, nil
 }
 
 func printReport(r *scanner.Report, top int) {
@@ -204,32 +232,26 @@ func printReport(r *scanner.Report, top int) {
 
 	// The port column matters once several ports are probed: the same address
 	// can appear more than once with different results per port.
-	fmt.Printf("%-16s %-6s %-6s %-8s %-8s %-9s %-6s %-8s %s\n",
-		"IP", "PORT", "SCORE", "LATENCY", "JITTER", "DOWNLOAD", "COLO", "RISK", "STATUS")
-	fmt.Println(strings.Repeat("-", 95))
+	fmt.Printf("%-16s %-6s %-6s %-8s %-8s %-9s %-6s %s\n",
+		"IP", "PORT", "SCORE", "LATENCY", "JITTER", "DOWNLOAD", "COLO", "STATUS")
+	fmt.Println(strings.Repeat("-", 85))
 
 	for i, c := range clean {
 		if i >= top {
 			break
 		}
-		risk := "n/a"
-		verdict := "⚪"
-		if c.Reputation != nil && c.Reputation.Err == "" {
-			risk = fmt.Sprintf("%.0f%%", c.Reputation.RiskPercent)
-			verdict = c.Reputation.Verdict.Emoji()
-		}
 		dl := "-"
 		if c.DownloadKBps > 0 {
 			dl = fmt.Sprintf("%.0f KB/s", c.DownloadKBps)
 		}
-		flags := verdict
+		flags := ""
 		if c.HeldOpen {
 			flags += " stable"
 		}
 		if c.WSOk {
 			flags += " ws"
 		}
-		fmt.Printf("%-16s %-6d %-6.1f %-8s %-8s %-9s %-6s %-8s %s\n",
+		fmt.Printf("%-16s %-6d %-6.1f %-8s %-8s %-9s %-6s %s\n",
 			c.IP,
 			c.Port,
 			c.Total,
@@ -237,21 +259,12 @@ func printReport(r *scanner.Report, top int) {
 			fmt.Sprintf("%.0fms", c.JitterMs),
 			dl,
 			orDash(c.Colo),
-			risk,
 			flags,
 		)
 	}
 
 	best := clean[0]
 	fmt.Printf("\nBest: %s:%d — score %.1f", best.IP, best.Port, best.Total)
-	if best.Reputation != nil && best.Reputation.Err == "" {
-		fmt.Printf(", %s %s risk %.1f%%, %s %s",
-			best.Reputation.Verdict.Emoji(),
-			best.Reputation.Verdict,
-			best.Reputation.RiskPercent,
-			orDash(best.Reputation.Country),
-			orDash(best.Reputation.City))
-	}
 	fmt.Println()
 }
 
@@ -264,11 +277,10 @@ func writeJSON(path string, r *scanner.Report) error {
 	enc := json.NewEncoder(f)
 	enc.SetIndent("", "  ")
 	return enc.Encode(map[string]any{
-		"tested":           r.Tested,
-		"hits":             r.Hits,
-		"duration_ms":      r.Duration.Milliseconds(),
-		"reputation_error": r.ReputationError,
-		"candidates":       r.Candidates,
+		"tested":      r.Tested,
+		"hits":        r.Hits,
+		"duration_ms": r.Duration.Milliseconds(),
+		"candidates":  r.Candidates,
 	})
 }
 

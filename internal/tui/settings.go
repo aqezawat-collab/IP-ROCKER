@@ -23,7 +23,6 @@ const (
 	rowDownload
 	rowMinSpeed
 	rowUpload
-	rowReputation
 	rowStrict
 	rowTopN
 	rowRanges
@@ -96,7 +95,6 @@ type settings struct {
 	minIdx      int
 	minCustom   float64
 	upIdx       int
-	repIdx      int // 0 = on
 	strictIdx   int // 0 = off
 	topIdx      int
 	// rangesIdx picks the scan scope; rangesText is the pasted IP/CIDR list.
@@ -114,7 +112,6 @@ func defaultSettings() settings {
 		dlIdx:      5, // 2 MB
 		minIdx:     0,
 		upIdx:      0,
-		repIdx:     0,
 		strictIdx:  0,
 		topIdx:     1,
 		rangesIdx:  0,

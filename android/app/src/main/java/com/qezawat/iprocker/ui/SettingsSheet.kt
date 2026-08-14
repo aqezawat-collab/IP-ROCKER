@@ -273,14 +273,6 @@ fun SettingsSheet(
                 Spacer(Modifier.height(6.dp))
 
                 SettingToggle(
-                    title = "Reputation check",
-                    subtitle = "Rates every answering address for proxy, VPN and abuse " +
-                        "flags. This is what finds genuinely clean addresses rather " +
-                        "than merely fast ones.",
-                    checked = settings.reputationCheck,
-                    onCheckedChange = { v -> onChange { it.copy(reputationCheck = v) } },
-                )
-                SettingToggle(
                     title = "Stability hold",
                     subtitle = "Keeps a connection idle for a few seconds to catch " +
                         "filtering that allows the first request and then resets.",

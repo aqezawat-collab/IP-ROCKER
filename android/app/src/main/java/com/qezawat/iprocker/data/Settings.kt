@@ -42,7 +42,6 @@ data class ScanSettings(
     val stabilityCheck: Boolean = true,
     val speedTest: Boolean = true,
     val uploadTest: Boolean = false,
-    val reputationCheck: Boolean = true,
     val strict: Boolean = false,
     val configLink: String = "",
     val sni: String = "",
@@ -183,7 +182,6 @@ class SettingsRepository(private val context: Context) {
             stabilityCheck = p[Keys.STABILITY] ?: d.stabilityCheck,
             speedTest = p[Keys.SPEED] ?: d.speedTest,
             uploadTest = p[Keys.UPLOAD_TEST] ?: d.uploadTest,
-            reputationCheck = p[Keys.REPUTATION] ?: d.reputationCheck,
             strict = p[Keys.STRICT] ?: d.strict,
             configLink = p[Keys.CONFIG_LINK] ?: d.configLink,
             sni = p[Keys.SNI] ?: d.sni,
@@ -214,7 +212,6 @@ class SettingsRepository(private val context: Context) {
             p[Keys.STABILITY] = s.stabilityCheck
             p[Keys.SPEED] = s.speedTest
             p[Keys.UPLOAD_TEST] = s.uploadTest
-            p[Keys.REPUTATION] = s.reputationCheck
             p[Keys.STRICT] = s.strict
             p[Keys.CONFIG_LINK] = s.configLink
             p[Keys.SNI] = s.sni
@@ -244,7 +241,6 @@ class SettingsRepository(private val context: Context) {
         val STABILITY = booleanPreferencesKey("stability")
         val SPEED = booleanPreferencesKey("speed")
         val UPLOAD_TEST = booleanPreferencesKey("upload_test")
-        val REPUTATION = booleanPreferencesKey("reputation")
         val STRICT = booleanPreferencesKey("strict")
         val CONFIG_LINK = stringPreferencesKey("config_link")
         val SNI = stringPreferencesKey("sni")

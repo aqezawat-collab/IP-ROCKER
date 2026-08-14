@@ -5,7 +5,6 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.qezawat.iprocker.data.BlockInfo
 import com.qezawat.iprocker.data.Candidate
-import com.qezawat.iprocker.data.ReputationInfo
 import com.qezawat.iprocker.data.ScanReport
 import com.qezawat.iprocker.data.ScanSettings
 import com.qezawat.iprocker.data.ScannerBridge
@@ -39,10 +38,6 @@ data class UiState(
     val message: String? = null,
     /** Set when a config link was parsed, describing what it changed. */
     val configApplied: String? = null,
-
-    val details: ReputationInfo? = null,
-    val detailsLoading: Boolean = false,
-    val detailsError: String? = null,
 
     val blockProfile: List<BlockInfo> = emptyList(),
 ) {
@@ -113,9 +108,6 @@ class ScanViewModel(app: Application) : AndroidViewModel(app) {
 
                     is ScannerBridge.Event.Finished -> _state.update {
                         val note = when {
-                            event.report.reputationError.isNotEmpty() ->
-                                "Reputation check failed (${event.report.reputationError}). " +
-                                    "Addresses below are usable on measurement alone but not verified clean."
                             event.report.cleanCount == 0 && event.report.hits > 0 ->
                                 "${event.report.hits} addresses answered but none passed every check. " +
                                     "Try turning off Strict, or scan more addresses."
@@ -214,35 +206,6 @@ class ScanViewModel(app: Application) : AndroidViewModel(app) {
     fun updateMessage(text: String) = _state.update { it.copy(message = text) }
 
     fun consumeConfigApplied() = _state.update { it.copy(configApplied = null) }
-
-    /** Loads the details sheet for one address. */
-    fun showDetails(candidate: Candidate) {
-        // A cached record from the scan avoids a redundant network round trip.
-        val cached = candidate.reputation
-        if (cached != null && cached.isVerified) {
-            _state.update { it.copy(details = cached, detailsError = null, detailsLoading = false) }
-            return
-        }
-        _state.update { it.copy(detailsLoading = true, details = null, detailsError = null) }
-        viewModelScope.launch {
-            runCatching { withContext(Dispatchers.IO) { bridge.lookup(candidate.ip) } }
-                .onSuccess { info ->
-                    _state.update { it.copy(details = info, detailsLoading = false) }
-                }
-                .onFailure { e ->
-                    _state.update {
-                        it.copy(
-                            detailsLoading = false,
-                            detailsError = e.message ?: "Lookup failed",
-                        )
-                    }
-                }
-        }
-    }
-
-    fun closeDetails() = _state.update {
-        it.copy(details = null, detailsError = null, detailsLoading = false)
-    }
 
     /**
      * The endpoints as text for copying or saving. mode selects the content:

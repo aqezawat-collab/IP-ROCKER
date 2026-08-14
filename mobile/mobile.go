@@ -23,7 +23,6 @@ import (
 	"github.com/Qezawat/IP-ROCKER/internal/cfranges"
 	"github.com/Qezawat/IP-ROCKER/internal/netports"
 	"github.com/Qezawat/IP-ROCKER/internal/probe"
-	"github.com/Qezawat/IP-ROCKER/internal/reputation"
 	"github.com/Qezawat/IP-ROCKER/internal/scanner"
 	"github.com/Qezawat/IP-ROCKER/internal/score"
 )
@@ -61,9 +60,8 @@ type ScanRequest struct {
 	wsPath         string
 	ports          string
 	minSpeedKBps   float64
-	requireWS      bool
-	strict         bool
-	skipReputation bool
+	requireWS bool
+	strict    bool
 	extraCIDRs     string
 	onlyExtra      bool
 	topN           int32
@@ -120,7 +118,6 @@ func (r *ScanRequest) SetStrict(v bool)           { r.strict = v }
 func (r *ScanRequest) SetTopN(v int32)            { r.topN = v }
 func (r *ScanRequest) SetExportMode(v string)     { r.exportMode = v }
 func (r *ScanRequest) SetImportMode(v string)     { r.importMode = v }
-func (r *ScanRequest) SetSkipReputation(v bool)   { r.skipReputation = v }
 func (r *ScanRequest) SetExtraCIDRs(v string)     { r.extraCIDRs = v }
 func (r *ScanRequest) SetOnlyExtra(v bool)        { r.onlyExtra = v }
 
@@ -318,9 +315,8 @@ func (r *ScanRequest) toOptions(listener ProgressListener) (scanner.Options, err
 			OnlyExtra:  r.onlyExtra,
 			SkipDirty:  true,
 		},
-		SkipReputation: r.skipReputation,
-		TopN:           int(r.topN),
-		ExportMode:     r.exportMode,
+		TopN:       int(r.topN),
+		ExportMode: r.exportMode,
 	}
 
 	if listener != nil {
@@ -354,12 +350,11 @@ func (r *ScanRequest) toOptions(listener ProgressListener) (scanner.Options, err
 
 func reportPayload(r *scanner.Report) map[string]any {
 	return map[string]any{
-		"tested":           r.Tested,
-		"hits":             r.Hits,
-		"duration_ms":      r.Duration.Milliseconds(),
-		"reputation_error": r.ReputationError,
-		"candidates":       r.Candidates,
-		"clean_count":      len(r.Clean()),
+		"tested":      r.Tested,
+		"hits":        r.Hits,
+		"duration_ms": r.Duration.Milliseconds(),
+		"candidates":  r.Candidates,
+		"clean_count": len(r.Clean()),
 	}
 }
 

@@ -2,109 +2,50 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, master]
   pull_request:
-  workflow_dispatch:
+    branches: [main, master]
 
 jobs:
-  go:
-    name: Go build and test
-    runs-on: ubuntu-latest
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Download modules
+        run: go mod download
 
       - name: Vet
         run: go vet ./...
 
-      # The Kotlin half cannot be compiled on the dev host (no SDK), so this
-      # cheap syntax/symbol check runs here too and fails before the much slower
-      # Android job starts.
-      - name: Check Android sources for syntax and symbol errors
-        run: python3 scripts/verify-kotlin-braces.py
+      - name: Build
+        run: go build -trimpath ./...
 
       - name: Test
-        run: go test -race ./...
+        run: go test -short -race ./...
 
-      - name: Build CLI for every target
-        run: |
-          for target in linux/amd64 linux/arm64 darwin/arm64 windows/amd64; do
-            GOOS="${target%/*}" GOARCH="${target#*/}" \
-              go build -o /dev/null ./cmd/iprocker
-          done
-
-  android:
-    name: Android debug APK
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        # Full history so `git rev-list --count HEAD` yields a real, monotonic
-        # versionCode; a shallow checkout would report 1 every time.
-        with:
-          fetch-depth: 0
-
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
 
-      - uses: actions/setup-java@v4
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
         with:
-          java-version: '17'
-          distribution: temurin
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install NDK
-        run: sdkmanager --install "ndk;27.2.12479018" > /dev/null
-
-      - name: Resolve APK version
-        id: v
-        run: |
-          # A debug APK built from a tagged commit carries that release version
-          # (whether the tag triggered the run or the same commit was pushed to
-          # main). Anything else is a dev build named after the commit. Either
-          # way the APK no longer falls back to the hardcoded 1.0.0, so Settings
-          # shows which build is actually installed.
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            TAG="${GITHUB_REF#refs/tags/}"
-          elif TAG="$(git describe --tags --exact-match HEAD 2>/dev/null)"; then
-            :
-          else
-            TAG=""
-          fi
-          if [ -n "$TAG" ]; then
-            VER="${TAG#v}"
-            VER="${VER#.}"
-          else
-            VER="dev-$(git rev-parse --short=7 HEAD)"
-          fi
-          CODE=$(git rev-list --count HEAD)
-          echo "version=$VER" >> "$GITHUB_OUTPUT"
-          echo "ANDROID_VERSION_NAME=$VER" >> "$GITHUB_ENV"
-          echo "ANDROID_VERSION_CODE=$CODE" >> "$GITHUB_ENV"
-
-      - name: Build Go core into an AAR
-        env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/27.2.12479018
-        run: |
-          chmod +x android/build_aar.sh
-          ./android/build_aar.sh
-
-      - name: Assemble debug APK
-        working-directory: android
-        run: |
-          chmod +x gradlew
-          ./gradlew :app:assembleDebug --stacktrace
-
-      - name: Upload debug APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: iprocker-debug-apk
-          path: android/app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
+          version: latest

@@ -1,206 +1,51 @@
-name: Release
+name: Release 1.0.0
 
 on:
   push:
     tags:
-      - "v*"
+      - "v1.0.0"
   workflow_dispatch:
-    inputs:
-      version:
-        description: "Version to build, e.g. 3.0.0"
-        required: true
 
 permissions:
   contents: write
 
 jobs:
-  desktop:
-    name: CLI binaries
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+  cli:
+    uses: ./.github/workflows/build-cli.yml
+    with:
+      version: 1.0.0
 
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Resolve version
-        id: v
-        run: |
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            RAW="${{ github.event.inputs.version }}"
-          else
-            RAW="${GITHUB_REF#refs/tags/}"
-          fi
-          # Strip a leading v, and a stray dot after it, so a v.3.0.0 style tag
-          # does not end up in binary names as ".3.0.0".
-          TAG="${RAW#v}"
-          echo "version=${TAG#.}" >> "$GITHUB_OUTPUT"
-
-      - name: Cross-compile
-        env:
-          VERSION: ${{ steps.v.outputs.version }}
-        run: |
-          mkdir -p dist
-          build() {
-            local goos="$1" goarch="$2" ext="$3"
-            GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 go build \
-              -trimpath \
-              -ldflags "-s -w -X main.version=$VERSION" \
-              -o "dist/iprocker-$goos-$goarch$ext" ./cmd/iprocker
-          }
-          build linux amd64 ""
-          build linux arm64 ""
-          build linux arm ""
-          build darwin amd64 ""
-          build darwin arm64 ""
-          build windows amd64 ".exe"
-          (cd dist && sha256sum * > SHA256SUMS.txt)
-          ls -lh dist
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: cli-binaries
-          path: dist/*
+  gui:
+    uses: ./.github/workflows/build-gui.yml
+    with:
+      version: 1.0.0
 
   android:
-    name: Android APKs
+    uses: ./.github/workflows/build-android.yml
+    with:
+      version: 1.0.0
+    secrets: inherit
+
+  publish:
+    needs: [cli, gui, android]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-go@v5
+      - uses: actions/download-artifact@v5
         with:
-          go-version-file: go.mod
-          cache: true
-
-      - uses: actions/setup-java@v4
+          path: release-assets
+          merge-multiple: true
+      - name: Generate SHA-256 checksums
+        working-directory: release-assets
+        shell: bash
+        run: sha256sum * > SHA256SUMS.txt
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          java-version: '17'
-          distribution: temurin
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install NDK
-        run: sdkmanager --install "ndk;27.2.12479018" > /dev/null
-
-      - name: Resolve version
-        id: v
-        run: |
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            RAW="${{ github.event.inputs.version }}"
-          else
-            RAW="${GITHUB_REF#refs/tags/}"
-          fi
-
-          # Tolerate the shapes a human actually types: v3.0.0, 3.0..0, v.3.0..0,
-          # 1.5, and a -rc1 style suffix. Anything left after this that is not
-          # MAJOR.MINOR[.PATCH] is a mistake worth failing loudly on, because a
-          # bad versionCode cannot be taken back once users have installed it.
-          TAG="${RAW#v}"
-          TAG="${TAG#.}"
-          CORE="${TAG%%-*}"
-          if ! printf '%s' "$CORE" | grep -Eq '^[0-9]+\.[0-9]+(\.[0-9]+)?$'; then
-            echo "::error::Tag '$RAW' is not a version. Use vMAJOR.MINOR.PATCH, for example v1.5.0." >&2
-            exit 1
-          fi
-
-          # versionCode must increase monotonically, so derive it from semver.
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$CORE"
-          PATCH=${PATCH:-0}
-          CODE=$((MAJOR * 10000 + MINOR * 100 + PATCH))
-
-          echo "Version $TAG, versionCode $CODE"
-          echo "version=$TAG" >> "$GITHUB_OUTPUT"
-          echo "ANDROID_VERSION_NAME=$TAG" >> "$GITHUB_ENV"
-          echo "ANDROID_VERSION_CODE=$CODE" >> "$GITHUB_ENV"
-
-      - name: Decode release keystore
-        id: keystore
-        env:
-          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-        run: |
-          # When no keystore secret is configured the build still produces an
-          # installable APK signed with the debug key, so a release is never
-          # blocked on signing setup.
-          if [ -z "$KEYSTORE_B64" ]; then
-            echo "signed=false" >> "$GITHUB_OUTPUT"
-            echo "No ANDROID_KEYSTORE_BASE64 secret found; falling back to debug signing." >&2
-            exit 0
-          fi
-          mkdir -p android/keystore
-          echo "$KEYSTORE_B64" | base64 -d > android/keystore/release.keystore
-          echo "signed=true" >> "$GITHUB_OUTPUT"
-
-      - name: Build Go core into an AAR
-        env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/27.2.12479018
-          IPROCKER_VERSION: ${{ steps.v.outputs.version }}
-        run: |
-          chmod +x android/build_aar.sh
-          ./android/build_aar.sh
-
-      - name: Assemble release APKs
-        working-directory: android
-        env:
-          ORG_GRADLE_PROJECT_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ORG_GRADLE_PROJECT_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ORG_GRADLE_PROJECT_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: |
-          chmod +x gradlew
-          ./gradlew :app:assembleRelease --stacktrace
-
-      - name: Bundle release AAB
-        working-directory: android
-        env:
-          ORG_GRADLE_PROJECT_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ORG_GRADLE_PROJECT_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ORG_GRADLE_PROJECT_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: ./gradlew :app:bundleRelease --stacktrace
-
-      - name: Rename APKs
-
-        run: |
-          mkdir -p release-artifacts
-          V="${{ steps.v.outputs.version }}"
-          SUFFIX=""
-          if [ "${{ steps.keystore.outputs.signed }}" != "true" ]; then
-            SUFFIX="-debugsigned"
-          fi
-          for apk in android/app/build/outputs/apk/release/*.apk; do
-            name=$(basename "$apk")
-            abi=$(echo "$name" | sed -E 's/^app-(.*)-release(-unsigned)?\.apk$/\1/')
-            [ "$abi" = "$name" ] && abi="universal"
-            cp "$apk" "release-artifacts/IP-ROCKER-${V}-${abi}${SUFFIX}.apk"
-          done
-          cp android/app/build/outputs/bundle/release/*.aab release-artifacts/ 2>/dev/null || true
-          (cd release-artifacts && sha256sum *.apk > SHA256SUMS.txt; sha256sum *.aab >> SHA256SUMS.txt 2>/dev/null || true)
-          ls -lh release-artifacts
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: android-apks
-          path: release-artifacts/*
-
-  publish:
-    name: Publish GitHub release
-    runs-on: ubuntu-latest
-    needs: [desktop, android]
-    if: startsWith(github.ref, 'refs/tags/v')
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: Flatten
-        run: |
-          mkdir -p upload
-          find artifacts -type f -exec cp {} upload/ \;
-          ls -lh upload
-
-      - uses: softprops/action-gh-release@v2
-        with:
-          files: upload/*
+          tag_name: v1.0.0
+          target_commitish: ${{ github.sha }}
+          name: IP-ROCKER v.1.0.0
+          body_path: RELEASE_NOTES.md
           generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: release-assets/*

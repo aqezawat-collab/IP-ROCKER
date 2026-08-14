@@ -19,6 +19,7 @@ import (
 	"github.com/Qezawat/IP-ROCKER/internal/netports"
 	"github.com/Qezawat/IP-ROCKER/internal/probe"
 	"github.com/Qezawat/IP-ROCKER/internal/scanner"
+	"github.com/Qezawat/IP-ROCKER/internal/export"
 	"github.com/Qezawat/IP-ROCKER/internal/score"
 	"github.com/Qezawat/IP-ROCKER/internal/tui"
 )
@@ -50,6 +51,9 @@ func main() {
 		txtOut      = flag.String("out", "", "write clean ip:port lines to this file")
 		showVersion = flag.Bool("version", false, "print version and exit")
 		quiet       = flag.Bool("quiet", false, "suppress progress output")
+		reputation  = flag.Bool("reputation", false, "look up IP reputation for each result (best-effort)")
+		format      = flag.String("format", "raw", "export format for -out / stdout: raw, clash, singbox, base64")
+		uuid        = flag.String("uuid", "", "vless/vmess uuid used by clash/singbox/base64 exports (placeholder if empty)")
 		ui          = flag.Bool("ui", false, "force the interactive terminal interface")
 		noUI        = flag.Bool("no-ui", false, "force the plain flag-driven scan even on a terminal")
 	)
@@ -139,6 +143,7 @@ func main() {
 			OnlyExtra:  *only,
 			SkipDirty:  true,
 		},
+		Reputation: *reputation,
 	}
 
 	if !*quiet {
@@ -171,7 +176,27 @@ func main() {
 		fmt.Fprintln(os.Stderr)
 	}
 
-	printReport(report, *top)
+	if *format == "raw" {
+		printReport(report, *top)
+		if *txtOut != "" {
+			if err := writeList(*txtOut, report); err != nil {
+				fmt.Fprintf(os.Stderr, "writing list: %v\n", err)
+			} else {
+				fmt.Fprintf(os.Stderr, "Clean endpoints written to %s\n", *txtOut)
+			}
+		}
+	} else {
+		out := buildExport(*format, *uuid, report, opts)
+		if *txtOut != "" {
+			if err := os.WriteFile(*txtOut, []byte(out), 0o644); err != nil {
+				fmt.Fprintf(os.Stderr, "writing %s export: %v\n", *format, err)
+			} else {
+				fmt.Fprintf(os.Stderr, "%s export written to %s\n", *format, *txtOut)
+			}
+		} else {
+			fmt.Println(out)
+		}
+	}
 
 	if *jsonOut != "" {
 		if err := writeJSON(*jsonOut, report); err != nil {
@@ -180,13 +205,36 @@ func main() {
 			fmt.Fprintf(os.Stderr, "\nFull report written to %s\n", *jsonOut)
 		}
 	}
-	if *txtOut != "" {
-		if err := writeList(*txtOut, report); err != nil {
-			fmt.Fprintf(os.Stderr, "writing list: %v\n", err)
-		} else {
-			fmt.Fprintf(os.Stderr, "Clean endpoints written to %s\n", *txtOut)
-		}
+}
+
+// buildExport renders the clean results in the requested subscription format
+// using the connection template IP-ROCKER already knows from the probe config.
+func buildExport(format, uuid string, r *scanner.Report, opts scanner.Options) string {
+	clean := r.Clean()
+	if len(clean) == 0 {
+		return ""
 	}
+	eps := make([]export.Endpoint, 0, len(clean))
+	for _, c := range clean {
+		eps = append(eps, export.Endpoint{IP: c.IP, Port: c.Port})
+	}
+	tmpl := export.Template{
+		Name:      "iprocker",
+		UUID:      uuid,
+		SNI:       opts.Probe.SNI,
+		Host:      opts.Probe.Host,
+		Path:      opts.Probe.WebSocketPath,
+		Transport: transportOf(opts.Probe.WebSocketPath),
+		TLS:       true,
+	}
+	return export.Render(format, tmpl, eps)
+}
+
+func transportOf(wsPath string) string {
+	if wsPath != "" {
+		return "ws"
+	}
+	return "tcp"
 }
 
 // loadIPList reads a text file containing one IP or CIDR per line. Blank lines

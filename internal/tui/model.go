@@ -739,6 +739,10 @@ func (m Model) viewResults() string {
 		return sb.String()
 	}
 
+	if m.report.ReputationError != "" {
+		sb.WriteString("  " + styWarn.Render("! reputation: "+m.report.ReputationError+" — not verified clean") + "\n\n")
+	}
+
 	clean := m.report.Clean()
 	sep := " — "
 	if m.width > 0 && m.width < 48 {
@@ -835,6 +839,19 @@ func (m Model) viewDetail() string {
 	line("colo", orDash(c.Colo))
 	line("held open", yesNo(c.HeldOpen))
 	line("websocket", yesNo(c.WSOk))
+
+	if c.Reputation != nil {
+		if c.Reputation.IsDatacenter {
+			// Every Cloudflare edge is a datacenter, so the flag is expected
+			// rather than a fault; framing it that way keeps a normal edge from
+			// looking suspicious. Kept on its own short line so it fits a phone.
+			line("datacenter", styGood.Render("yes"))
+			sb.WriteString(styDim.Render("    (expected for a Cloudflare edge)") + "\n")
+		} else {
+			line("datacenter", yesNo(c.Reputation.IsDatacenter))
+		}
+		line("repute", fmt.Sprintf("%s · risk %s", verdictMark(c), riskStr(c.Reputation)))
+	}
 
 	if len(c.Notes) > 0 {
 		sb.WriteString("\n")

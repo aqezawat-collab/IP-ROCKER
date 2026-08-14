@@ -387,10 +387,15 @@ func probeHTTP(ctx context.Context, ip net.IP, sni string, cfg Config) Attempt {
 		att.DownloadTested = true
 		bps, err := measureDownload(ctx, client, scheme, speedTestHost, cfg)
 		if err != nil {
-			// Any download failure is recorded as a note, never fatal.
-			// Censored networks routinely reset connections mid-transfer,
-			// and a middlebox rate-limiting the speed endpoint says nothing
-			// about whether this edge can carry proxied traffic.
+			// A truncated transfer means the path permitted the request but
+			// cannot sustain data — the exact middlebox signature a latency-only
+			// scanner misses. That must disqualify the attempt. An endpoint that
+			// refuses the request (rate limit, challenge) is a property of the
+			// host and stays a non-fatal note, as does a transient network error.
+			if strings.Contains(err.Error(), "truncated") {
+				att.Err = "download: " + err.Error()
+				return att
+			}
 			att.Note = "download: " + err.Error()
 		} else {
 			att.DownloadBps = bps

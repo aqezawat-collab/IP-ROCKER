@@ -13,6 +13,7 @@ import (
 	"github.com/Qezawat/IP-ROCKER/internal/cfranges"
 	"github.com/Qezawat/IP-ROCKER/internal/netports"
 	"github.com/Qezawat/IP-ROCKER/internal/probe"
+	"github.com/Qezawat/IP-ROCKER/internal/reputation"
 	"github.com/Qezawat/IP-ROCKER/internal/score"
 )
 
@@ -75,6 +76,11 @@ type Options struct {
 	// candidates that answered. The mobile UI exposes both as copy buttons.
 	ExportMode string
 
+	// Reputation, when true, enriches each candidate with an IP-reputation
+	// lookup after ranking. It is best-effort: a provider outage sets
+	// Report.ReputationError instead of failing the scan.
+	Reputation bool
+
 	// Report receives progress updates. It is called from worker goroutines,
 	// so implementations must be safe for concurrent use.
 	Report func(Progress)
@@ -131,6 +137,9 @@ type Report struct {
 	Tested     int64
 	Hits       int64
 	Duration   time.Duration
+	// ReputationError is non-empty when reputation lookups were requested but
+	// the provider could not be reached, so the results are not reputation-verified.
+	ReputationError string
 }
 
 // Clean returns only the candidates that passed every requirement.
@@ -253,7 +262,7 @@ func (s *Scanner) Run(ctx context.Context) (*Report, error) {
 
 	cands := make([]*score.Candidate, 0, len(snapshot))
 	for _, r := range snapshot {
-		cands = append(cands, score.Evaluate(r, nil, s.opts.Criteria))
+		cands = append(cands, score.Evaluate(r, s.opts.Criteria))
 	}
 	score.Rank(cands)
 
@@ -263,13 +272,21 @@ func (s *Scanner) Run(ctx context.Context) (*Report, error) {
 		cands = cands[:s.opts.TopN]
 	}
 
+	// Reputation enrichment is best-effort and never fails the scan: a provider
+	// outage sets Report.ReputationError so the UI can say "not verified clean".
+	var repErr string
+	if s.opts.Reputation {
+		repErr = s.enrichReputation(ctx, cands)
+	}
+
 	s.report(Progress{Phase: PhaseDone, Tested: s.tested.Load(), Hits: s.hits.Load()})
 
 	return &Report{
-		Candidates: cands,
-		Tested:     s.tested.Load(),
-		Hits:       s.hits.Load(),
-		Duration:   time.Since(start),
+		Candidates:      cands,
+		Tested:          s.tested.Load(),
+		Hits:            s.hits.Load(),
+		Duration:        time.Since(start),
+		ReputationError: repErr,
 	}, nil
 }
 
@@ -322,7 +339,7 @@ func (s *Scanner) probeStream(ctx context.Context, src <-chan net.IP, collect fu
 					}
 					mu.Unlock()
 					if s.opts.OnHit != nil {
-						s.opts.OnHit(score.Evaluate(r, nil, s.opts.Criteria))
+						s.opts.OnHit(score.Evaluate(r, s.opts.Criteria))
 					}
 				}
 				s.report(Progress{
@@ -355,4 +372,54 @@ func anyOk(r *probe.Result) bool {
 		}
 	}
 	return false
+}
+
+// enrichReputation looks up the IP reputation for each candidate. The lookups
+// run concurrently and never fail the scan: if any of them errors, the returned
+// string is non-empty so the caller can warn that results are not verified clean.
+func (s *Scanner) enrichReputation(ctx context.Context, cands []*score.Candidate) string {
+	if len(cands) == 0 {
+		return ""
+	}
+
+	type result struct {
+		cand *score.Candidate
+		info *reputation.Info
+	}
+	ch := make(chan result, len(cands))
+	var wg sync.WaitGroup
+	for _, c := range cands {
+		wg.Add(1)
+		go func(c *score.Candidate) {
+			defer wg.Done()
+			ch <- result{cand: c, info: reputation.Lookup(ctx, c.IP)}
+		}(c)
+	}
+	go func() {
+		wg.Wait()
+		close(ch)
+	}()
+
+	failed := false
+	for r := range ch {
+		r.cand.Reputation = r.info
+		if r.info != nil && r.info.Err != "" {
+			failed = true
+		}
+		// Strict / "require clean" mode disqualifies an address whose reputation
+		// was not conclusively clean (proxy/VPN/Tor or an unverified lookup).
+		if s.opts.Criteria.RequireClean && !reputationClean(r.info) {
+			r.cand.Healthy = false
+			r.cand.Notes = append(r.cand.Notes, "reputation not clean (proxy/VPN/Tor or unverified)")
+		}
+	}
+	if failed {
+		return "reputation provider unavailable — results not verified clean"
+	}
+	return ""
+}
+
+// reputationClean reports whether the lookup conclusively shows a clean address.
+func reputationClean(info *reputation.Info) bool {
+	return info != nil && info.Err == "" && info.Verdict == reputation.VerdictClean
 }

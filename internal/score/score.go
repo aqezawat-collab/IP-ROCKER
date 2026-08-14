@@ -6,6 +6,9 @@ import (
 	"sort"
 	"strconv"
 	"time"
+
+	"github.com/Qezawat/IP-ROCKER/internal/probe"
+	"github.com/Qezawat/IP-ROCKER/internal/reputation"
 )
 
 // Weights control how much each dimension contributes. They sum to 1.0.
@@ -62,6 +65,9 @@ type Candidate struct {
 	Healthy bool `json:"healthy"`
 	// Verdict is always unknown; kept for JSON compatibility with older UIs.
 	Verdict string `json:"verdict"`
+	// Reputation is the optional IP-reputation lookup for this address. It is
+	// nil when the scan did not request reputation or the lookup failed.
+	Reputation *reputation.Info `json:"reputation,omitempty"`
 	// Notes explains the outcome to the user.
 	Notes []string `json:"notes,omitempty"`
 
@@ -75,6 +81,9 @@ type Criteria struct {
 	RequireHold bool
 	// RequireWebSocket disqualifies addresses that refused a WebSocket upgrade.
 	RequireWebSocket bool
+	// RequireClean disqualifies addresses whose reputation lookup was not clean
+	// (proxy/VPN/Tor) or could not be verified. Set by strict mode.
+	RequireClean bool
 	// MinDownloadKBps disqualifies addresses slower than this. Zero disables.
 	MinDownloadKBps float64
 	// MaxLossPercent disqualifies addresses above this loss level.
@@ -99,6 +108,7 @@ func StrictCriteria() Criteria {
 	c := DefaultCriteria()
 	c.RequireHold = true
 	c.RequireWebSocket = true
+	c.RequireClean = true
 	c.MinDownloadKBps = 200
 	c.MaxLossPercent = 34
 	c.MaxLatency = 2500 * time.Millisecond
@@ -106,7 +116,7 @@ func StrictCriteria() Criteria {
 }
 
 // Evaluate combines a probe result into a Candidate.
-func Evaluate(r *probe.Result, _ interface{}, c Criteria) *Candidate {
+func Evaluate(r *probe.Result, c Criteria) *Candidate {
 	if c.Weights == (Weights{}) {
 		c.Weights = DefaultWeights()
 	}
@@ -296,7 +306,14 @@ func stabilityScore(s stats) float64 {
 		return 0
 	}
 	v := (100 - s.loss) * 0.5
-	v += scale(ms(s.jitter), 5, 400, true) * 0.3
+	// Jitter is best at zero; a perfectly stable connection must score full
+	// marks, not zero. scale() returns 0 for v<=0, so map a zero jitter to the
+	// best score explicitly.
+	jscore := scale(ms(s.jitter), 5, 400, true)
+	if s.jitter == 0 {
+		jscore = 100
+	}
+	v += jscore * 0.3
 	if s.held {
 		v += 15
 	}

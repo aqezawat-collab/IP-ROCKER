@@ -7,9 +7,8 @@ import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.material.icons.filled.FileOpen
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -25,6 +24,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
@@ -44,6 +45,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -62,14 +65,21 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.qezawat.iprocker.data.Candidate
 import com.qezawat.iprocker.ui.components.ResultCard
 import com.qezawat.iprocker.ui.components.RockerCard
 import com.qezawat.iprocker.ui.components.ScanProgressBar
 import com.qezawat.iprocker.ui.components.SectionLabel
+import com.qezawat.iprocker.ui.components.DetailRow
+import com.qezawat.iprocker.ui.components.FlagChip
+import com.qezawat.iprocker.ui.components.formatSpeed
 import com.qezawat.iprocker.ui.theme.RockerAccent
 import com.qezawat.iprocker.ui.theme.RockerBackground
 import com.qezawat.iprocker.ui.theme.RockerSurfaceHigh
 import com.qezawat.iprocker.ui.theme.TextSecondary
+import com.qezawat.iprocker.ui.theme.VerdictCaution
+import com.qezawat.iprocker.ui.theme.VerdictClean
+import com.qezawat.iprocker.ui.theme.VerdictDirty
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -230,6 +240,10 @@ fun ScanScreen(viewModel: ScanViewModel = viewModel()) {
             onImportFile = { importLauncher.launch("*/*") },
             onDismiss = { showSettings = false },
         )
+    }
+
+    state.selected?.let { selected ->
+        DetailSheet(candidate = selected, onDismiss = viewModel::dismissDetails)
     }
 }
 
@@ -399,6 +413,105 @@ private fun EmptyState(neverRun: Boolean) {
                     style = MaterialTheme.typography.bodySmall,
                     color = TextSecondary,
                 )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DetailSheet(
+    candidate: Candidate,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = RockerBackground,
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 18.dp)
+                .padding(bottom = 36.dp),
+        ) {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = candidate.endpoint,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = if (candidate.healthy) "USABLE" else "REJECTED",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (candidate.healthy) VerdictClean else VerdictDirty,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.Close, contentDescription = "Close", tint = TextSecondary)
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            RockerCard {
+                SectionLabel("Measurements")
+                Spacer(Modifier.height(8.dp))
+                DetailRow("Score", "%.0f".format(candidate.score))
+                DetailRow("Avg latency", "${candidate.avgLatencyMs.toInt()} ms")
+                DetailRow("Min latency", "${candidate.minLatencyMs.toInt()} ms")
+                DetailRow("Jitter", "${candidate.jitterMs.toInt()} ms")
+                DetailRow("Loss", "${candidate.lossPercent.toInt()} %")
+                if (candidate.downloadKbps > 0) {
+                    DetailRow("Download", formatSpeed(candidate.downloadKbps))
+                }
+                if (candidate.uploadKbps > 0) {
+                    DetailRow("Upload", formatSpeed(candidate.uploadKbps))
+                }
+                if (candidate.colo.isNotBlank()) {
+                    DetailRow("Colo", candidate.colo)
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            RockerCard {
+                SectionLabel("Checks")
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    FlagChip("Healthy", candidate.healthy)
+                    FlagChip("WebSocket", candidate.webSocketOk)
+                    FlagChip("Stable", candidate.heldOpen)
+                    FlagChip("TLS", candidate.tlsOk)
+                }
+            }
+
+            if (candidate.notes.isNotEmpty()) {
+                Spacer(Modifier.height(12.dp))
+                RockerCard {
+                    SectionLabel("Why flagged")
+                    Spacer(Modifier.height(8.dp))
+                    candidate.notes.forEach { note ->
+                        Text(
+                            text = "• $note",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = VerdictCaution,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                    }
+                }
             }
         }
     }

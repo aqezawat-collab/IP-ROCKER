@@ -40,6 +40,9 @@ data class UiState(
     val configApplied: String? = null,
 
     val blockProfile: List<BlockInfo> = emptyList(),
+
+    /** The candidate whose detail sheet is open, or null when none is shown. */
+    val selected: Candidate? = null,
 ) {
     val visibleResults: List<Candidate>
         get() {
@@ -206,6 +209,12 @@ class ScanViewModel(app: Application) : AndroidViewModel(app) {
     fun updateMessage(text: String) = _state.update { it.copy(message = text) }
 
     fun consumeConfigApplied() = _state.update { it.copy(configApplied = null) }
+
+    /** Opens the detail sheet for a candidate (the result row's tap target). */
+    fun showDetails(c: Candidate) = _state.update { it.copy(selected = c) }
+
+    /** Closes the detail sheet. */
+    fun dismissDetails() = _state.update { it.copy(selected = null) }
 
     /**
      * The endpoints as text for copying or saving. mode selects the content:

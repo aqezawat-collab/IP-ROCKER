@@ -1,6 +1,5 @@
 package com.qezawat.iprocker.ui.components
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -32,7 +31,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.qezawat.iprocker.data.Candidate
-import com.qezawat.iprocker.data.Verdict
 import com.qezawat.iprocker.ui.theme.RockerAccent
 import com.qezawat.iprocker.ui.theme.RockerOutline
 import com.qezawat.iprocker.ui.theme.RockerSurface
@@ -56,11 +54,6 @@ fun ResultCard(
     onCopy: (Candidate) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val verdict = candidate.verdictLevel
-    // A usable address is green regardless of whether reputation could be
-    // checked: "healthy" already means it passed every hard requirement, so an
-    // unavailable reputation provider must not turn a working edge grey or red.
-    // The verdict badge below still carries the reputation nuance.
     val accent = if (candidate.healthy) VerdictClean else VerdictDirty
 
     Column(
@@ -127,52 +120,42 @@ fun ResultCard(
             }
         }
 
-        AnimatedVisibility(visible = candidate.healthy) {
-            Column {
-                Spacer(Modifier.height(10.dp))
-                Row(
-                    Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    VerdictBadge(
-                        verdict = verdict,
-                        riskPercent = candidate.reputation?.takeIf { it.isVerified }?.riskPercent,
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    if (candidate.heldOpen) TagPill("STABLE")
-                    if (candidate.webSocketOk) {
-                        Spacer(Modifier.width(4.dp))
-                        TagPill("WS")
-                    }
-                    Spacer(Modifier.weight(1f))
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (candidate.heldOpen) TagPill("STABLE")
+            if (candidate.webSocketOk) {
+                Spacer(Modifier.width(4.dp))
+                TagPill("WS")
+            }
+            Spacer(Modifier.weight(1f))
 
-                    IconButton(
-                        onClick = { onCopy(candidate) },
-                        modifier = Modifier
-                            .size(34.dp)
-                            .semantics { contentDescription = "Copy ${candidate.endpoint}" },
-                    ) {
-                        Icon(
-                            Icons.Default.ContentCopy,
-                            contentDescription = null,
-                            tint = RockerAccent,
-                            modifier = Modifier.size(17.dp),
-                        )
-                    }
-                    IconButton(
-                        onClick = { onDetails(candidate) },
-                        modifier = Modifier
-                            .size(34.dp)
-                            .semantics { contentDescription = "Details for ${candidate.ip}" },
-                    ) {
-                        Icon(
-                            Icons.Default.Info,
-                            contentDescription = null,
-                            tint = TextSecondary,
-                            modifier = Modifier.size(17.dp),
-                        )
-                    }
-                }
+            IconButton(
+                onClick = { onCopy(candidate) },
+                modifier = Modifier
+                    .size(34.dp)
+                    .semantics { contentDescription = "Copy ${candidate.endpoint}" },
+            ) {
+                Icon(
+                    Icons.Default.ContentCopy,
+                    contentDescription = null,
+                    tint = RockerAccent,
+                    modifier = Modifier.size(17.dp),
+                )
+            }
+            IconButton(
+                onClick = { onDetails(candidate) },
+                modifier = Modifier
+                    .size(34.dp)
+                    .semantics { contentDescription = "Details for ${candidate.ip}" },
+            ) {
+                Icon(
+                    Icons.Default.Info,
+                    contentDescription = null,
+                    tint = TextSecondary,
+                    modifier = Modifier.size(17.dp),
+                )
             }
         }
     }
@@ -238,6 +221,3 @@ fun formatSpeed(kbps: Double): String = when {
     kbps >= 1 -> "%.0f KB/s".format(kbps)
     else -> "<1 KB/s"
 }
-
-/** Maps a verdict to its display colour, re-exported for call sites. */
-fun Verdict.badgeColor(): Color = color()

@@ -62,7 +62,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.qezawat.iprocker.ui.components.IpDetailsSheet
 import com.qezawat.iprocker.ui.components.ResultCard
 import com.qezawat.iprocker.ui.components.RockerCard
 import com.qezawat.iprocker.ui.components.ScanProgressBar
@@ -230,15 +229,6 @@ fun ScanScreen(viewModel: ScanViewModel = viewModel()) {
             onChange = viewModel::updateSettings,
             onImportFile = { importLauncher.launch("*/*") },
             onDismiss = { showSettings = false },
-        )
-    }
-
-    if (state.details != null || state.detailsLoading || state.detailsError != null) {
-        IpDetailsSheet(
-            info = state.details,
-            loading = state.detailsLoading,
-            error = state.detailsError,
-            onDismiss = viewModel::closeDetails,
         )
     }
 }

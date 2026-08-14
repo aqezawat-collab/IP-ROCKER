@@ -7,8 +7,8 @@ import org.junit.Test
 
 /**
  * These tests pin the JSON contract with the Go core. If a struct tag in
- * internal/score or internal/reputation changes without the Kotlin model
- * following, the app would silently show zeros; these catch that.
+ * internal/score changes without the Kotlin model following, the app would
+ * silently show zeros; these catch that.
  */
 class ModelsTest {
 
@@ -30,23 +30,7 @@ class ModelsTest {
           "tls_ok": true,
           "score": 71.3,
           "healthy": true,
-          "verdict": "clean",
-          "reputation": {
-            "ip": "104.25.228.176",
-            "is_datacenter": true,
-            "is_proxy": false,
-            "is_abuser": false,
-            "company_name": "Cloudflare, Inc.",
-            "company_abuse": 0.0076,
-            "asn": 13335,
-            "asn_name": "Cloudflare, Inc.",
-            "asn_abuse": 0.0153,
-            "route": "104.25.0.0/16",
-            "country": "United States",
-            "city": "San Francisco",
-            "risk_percent": 5.7,
-            "verdict": "clean"
-          }
+          "notes": []
         }
         """.trimIndent()
 
@@ -57,23 +41,6 @@ class ModelsTest {
         assertTrue(c.healthy)
         assertTrue(c.heldOpen)
         assertEquals("FRA", c.colo)
-        assertEquals(Verdict.CLEAN, c.verdictLevel)
-        assertEquals(13335, c.reputation?.asn)
-        assertTrue(c.reputation!!.isVerified)
-    }
-
-    /**
-     * An address the provider could not rate must resolve to UNKNOWN, never to
-     * CLEAN, because treating an outage as a pass would hand over risky
-     * addresses.
-     */
-    @Test
-    fun `unverified reputation is unknown not clean`() {
-        val json = """{"ip":"1.2.3.4","verdict":"clean","error":"provider unreachable"}"""
-        val info = IPRockerJson.decodeFromString<ReputationInfo>(json)
-
-        assertFalse(info.isVerified)
-        assertEquals(Verdict.UNKNOWN, info.verdictLevel)
     }
 
     @Test
@@ -94,14 +61,29 @@ class ModelsTest {
     }
 
     @Test
+    fun `rejected candidate with no notes shows generic headline`() {
+        val json = """
+        {
+          "ip": "6.6.6.6",
+          "port": 443,
+          "healthy": false,
+          "score": 0.0,
+          "notes": []
+        }
+        """.trimIndent()
+
+        val c = IPRockerJson.decodeFromString<Candidate>(json)
+        assertFalse(c.healthy)
+        assertEquals("measured edge", c.headline)
+    }
+
+    @Test
     fun `report separates usable from rejected`() {
         val json = """
         {
           "tested": 216,
           "hits": 23,
           "duration_ms": 36930,
-          "clean_count": 2,
-          "reputation_error": "",
           "candidates": [
             {"ip":"1.1.1.1","port":443,"healthy":true,"score":70.0},
             {"ip":"2.2.2.2","port":443,"healthy":true,"score":60.0},
@@ -122,14 +104,5 @@ class ModelsTest {
         val json = """{"ip":"9.9.9.9","port":443,"score":1.0,"brand_new_field":"x"}"""
         val c = IPRockerJson.decodeFromString<Candidate>(json)
         assertEquals("9.9.9.9", c.ip)
-    }
-
-    @Test
-    fun `location joins only the parts that exist`() {
-        val info = ReputationInfo(country = "Germany", city = "Dreieich")
-        assertEquals("Germany / Dreieich", info.location)
-
-        val empty = ReputationInfo()
-        assertEquals("", empty.location)
     }
 }

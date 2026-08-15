@@ -54,10 +54,10 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - name: Set up Android SDK 36
+      - name: Set up Android SDK and NDK
         uses: android-actions/setup-android@v4
         with:
-          packages: "platform-tools platforms;android-36 build-tools;36.0.0"
+          packages: "platform-tools platforms;android-35 build-tools;35.0.0 ndk;29.0.14206865"
       - uses: gradle/actions/setup-gradle@v6
 
       - name: Verify Android SDK tools
@@ -65,8 +65,11 @@ jobs:
         run: |
           command -v sdkmanager
           sdkmanager --version
-          test -d "$ANDROID_SDK_ROOT/platforms/android-36"
-          test -d "$ANDROID_SDK_ROOT/build-tools/36.0.0"
+          test -d "$ANDROID_SDK_ROOT/platforms/android-35"
+          test -d "$ANDROID_SDK_ROOT/build-tools/35.0.0"
+          test -d "$ANDROID_SDK_ROOT/ndk/29.0.14206865"
+          # gomobile looks up the NDK via ANDROID_NDK_HOME when binding for Android.
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/29.0.14206865" >> "$GITHUB_ENV"
 
       - name: Build Go mobile bridge
         shell: bash
@@ -75,7 +78,7 @@ jobs:
           go install golang.org/x/mobile/cmd/gobind@latest
           export PATH="$PATH:$(go env GOPATH)/bin"
           gomobile init
-          chmod +x android/build_go_mobile.sh
+          chmod +x android/build_aar.sh
           android/build_aar.sh
 
       - name: Prepare Android signing

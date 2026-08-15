@@ -108,10 +108,12 @@ func TestApplyConfigURLUpdatesRequest(t *testing.T) {
 	if req.port != 2087 {
 		t.Errorf("request port = %d, want 2087", req.port)
 	}
-	// Deriving a WebSocket path means the upgrade check becomes mandatory,
-	// otherwise the scan would approve edges the config cannot actually use.
-	if !req.requireWS {
-		t.Error("requireWS should be enabled once a WebSocket path is known")
+	// A WebSocket path is recorded (wsPath) but must NOT auto-arm
+	// RequireWebSocket: the upgrade is answered by the origin (e.g. a
+	// Cloudflare Worker panel), not the edge, so forcing it would reject
+	// every edge for Worker-fronted configs. requireWS stays opt-in.
+	if req.requireWS {
+		t.Error("ApplyConfigURL must not auto-enable requireWS from a path; it stays opt-in")
 	}
 	if summary == "" {
 		t.Error("expected a human-readable summary of what was applied")

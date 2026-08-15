@@ -139,9 +139,13 @@ func (r *ScanRequest) ApplyConfigURL(raw string) (string, error) {
 	}
 	if cfg.Path != "" {
 		r.wsPath = cfg.Path
-		// A config that rides WebSocket is useless on an edge that refuses the
-		// upgrade, so verifying it becomes mandatory rather than optional.
-		r.requireWS = true
+		// NOTE: we do NOT force RequireWebSocket from a path alone. The WS
+		// upgrade is answered by the origin (e.g. a Cloudflare Worker panel),
+		// not the edge, so a failed upgrade reflects the origin's capability —
+		// not the edge's health. Force-arming it disqualified every edge for
+		// Worker-fronted configs ("no usable edges"). WS stays a soft signal
+		// used for scoring/sorting; opt in explicitly via SetRequireWebSocket
+		// / -require-ws when the origin is a real ws proxy.
 	}
 	if cfg.Port > 0 {
 		r.port = int32(cfg.Port)

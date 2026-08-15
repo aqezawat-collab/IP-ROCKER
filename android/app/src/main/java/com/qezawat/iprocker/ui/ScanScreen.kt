@@ -201,11 +201,23 @@ fun ScanScreen(viewModel: ScanViewModel = viewModel()) {
                 )
             }
 
+            if (state.report != null) {
+                item {
+                    SectionLabel(
+                        "Phase 2 · ${state.report.cleanCount} usable of ${state.report.candidates.size}",
+                    )
+                }
+            }
+
             if (state.report != null || state.liveHits.isNotEmpty()) {
                 item {
                     FilterRow(
                         current = state.filter,
-                        usableCount = state.report?.clean?.size ?: state.liveHits.size,
+                        // During the live phase health is not finalised, so count
+                        // only the hits already marked healthy rather than every
+                        // hit; otherwise "Usable" over-counts and "Rejected" reads
+                        // zero even when addresses were rejected.
+                        usableCount = state.report?.cleanCount ?: state.liveHits.count { it.healthy },
                         totalCount = state.report?.candidates?.size ?: state.liveHits.size,
                         onSelect = viewModel::setFilter,
                     )

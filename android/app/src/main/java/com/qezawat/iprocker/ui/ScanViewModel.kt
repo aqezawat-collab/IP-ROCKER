@@ -47,15 +47,14 @@ data class UiState(
     val visibleResults: List<Candidate>
         get() {
             val r = report
-            // When the report has no candidates (e.g. scan ended early
-            // out), fall back to live hits so the user never sees an empty list
-            // after a scan that clearly found addresses.
+            // Live phase: the final report has not been produced yet, so a
+            // candidate's health is not finalised. Show every address that
+            // answered so the user sees the scan streaming in, instead of an
+            // empty list behind the "Usable" filter (which would hide hits that
+            // have not been rated yet and look broken). This is the Phase 2
+            // stream — the final, rated list replaces it once the scan ends.
             if (r == null || r.candidates.isEmpty()) {
-                return when (filter) {
-                    ResultFilter.USABLE -> liveHits.filter { it.healthy }
-                    ResultFilter.FLAGGED -> liveHits.filter { !it.healthy }
-                    ResultFilter.ALL -> liveHits
-                }.sortedByDescending { it.score }
+                return liveHits.sortedByDescending { it.score }
             }
             return when (filter) {
                 ResultFilter.USABLE -> r.candidates.filter { it.healthy }

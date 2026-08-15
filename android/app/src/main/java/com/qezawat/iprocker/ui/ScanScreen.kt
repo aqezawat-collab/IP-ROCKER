@@ -201,10 +201,14 @@ fun ScanScreen(viewModel: ScanViewModel = viewModel()) {
                 )
             }
 
-            if (state.report != null) {
+            // state.report is a delegated property, so it cannot be smart-cast to
+            // a non-null ScanReport after a null check. Snapshot it into a local
+            // val (stable) before using it inside the conditional.
+            val report = state.report
+            if (report != null) {
                 item {
                     SectionLabel(
-                        "Phase 2 · ${state.report.cleanCount} usable of ${state.report.candidates.size}",
+                        "Phase 2 · ${report.cleanCount} usable of ${report.candidates.size}",
                     )
                 }
             }
@@ -274,11 +278,14 @@ private fun ControlCard(
             Column(Modifier.weight(1f)) {
                 SectionLabel(if (state.scanning) state.phase else "ready")
                 Spacer(Modifier.height(4.dp))
+                // Snapshot the delegated property so the when branch can use it
+                // without a smart-cast, which delegated properties forbid.
+                val report = state.report
                 Text(
                     text = when {
                         state.scanning -> "${state.tested} probed · ${state.hits} answered"
-                        state.report != null ->
-                            "${state.report.tested} probed · ${state.report.cleanCount} usable"
+                        report != null ->
+                            "${report.tested} probed · ${report.cleanCount} usable"
                         else -> "${state.settings.count} addresses queued"
                     },
                     style = MaterialTheme.typography.bodyMedium,

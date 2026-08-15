@@ -103,7 +103,7 @@ func main() {
 	}
 
 	// If the user supplied a positional file path, load IPs/CIDRs from it.
-	// This mirrors SenPaiScanner's ips.txt behaviour: a plain text file with
+	// This mirrors IP-ROCKER ips.txt behaviour: a plain text file with
 	// one address or CIDR per line is the easiest way to feed a custom list.
 	if flag.NArg() > 0 {
 		filePath := flag.Arg(0)

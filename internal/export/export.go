@@ -1,5 +1,5 @@
 // Package export turns discovered Cloudflare edge addresses into the portable
-// subscription formats other scanners (e.g. SenPaiScanner) emit. IP-ROCKER
+// subscription formats other scanners (e.g. IP-ROCKER) emit. IP-ROCKER
 // finds clean edges; it does not own the user's proxy credentials, so the node
 // template carries the connection parameters it does know (SNI, host, path,
 // transport) and a placeholder UUID the user fills in their client.

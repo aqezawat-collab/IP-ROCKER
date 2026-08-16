@@ -155,6 +155,12 @@ func (r *ScanRequest) ApplyConfigURL(raw string) (string, error) {
 	}
 
 	var parts []string
+	// Surface the detected transport/security up front so the user can see the
+	// config was recognised as "WS + TLS" (or TLS, or REALITY) rather than
+	// leaving it ambiguous whether a WebSocket config was treated as plain SNI.
+	if label := configTransportLabel(cfg); label != "" {
+		parts = append(parts, label)
+	}
 	if cfg.SNI != "" {
 		parts = append(parts, "SNI "+cfg.SNI)
 	}
@@ -171,6 +177,35 @@ func (r *ScanRequest) ApplyConfigURL(raw string) (string, error) {
 		return "", fmt.Errorf("config link contained no usable TLS or transport settings")
 	}
 	return strings.Join(parts, ", "), nil
+}
+
+// configTransportLabel describes the detected transport and security layer so
+// the UI can show exactly what a pasted link was recognised as — for example
+// "WS + TLS" for a vless://…?type=ws&security=tls link, instead of leaving it
+// ambiguous whether the config was treated as plain SNI/TLS. The scanner always
+// uses SNI/Host/path regardless of this label; it is display-only.
+func configTransportLabel(cfg *ConfigLink) string {
+	var parts []string
+	switch strings.ToLower(strings.TrimSpace(cfg.Transport)) {
+	case "ws", "websocket", "httpupgrade":
+		parts = append(parts, "WS")
+	case "xhttp":
+		parts = append(parts, "XHTTP")
+	case "tcp", "":
+		// default transport; no prefix needed
+	}
+	switch strings.ToLower(strings.TrimSpace(cfg.Security)) {
+	case "tls":
+		parts = append(parts, "TLS")
+	case "reality":
+		parts = append(parts, "REALITY")
+	case "none", "":
+		// no explicit security layer named
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, " + ")
 }
 
 // Scanner is the handle Kotlin holds for a running or finished scan.

@@ -39,12 +39,6 @@ jobs:
     with:
       version: ${{ needs.version.outputs.version }}
 
-  gui:
-    needs: version
-    uses: ./.github/workflows/build-gui.yml
-    with:
-      version: ${{ needs.version.outputs.version }}
-
   android:
     needs: version
     uses: ./.github/workflows/build-android.yml
@@ -53,7 +47,7 @@ jobs:
     secrets: inherit
 
   publish:
-    needs: [cli, gui, android]
+    needs: [cli, android]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

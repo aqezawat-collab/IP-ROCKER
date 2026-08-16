@@ -55,6 +55,18 @@ jobs:
         with:
           path: release-assets
           merge-multiple: true
+      - name: Flatten downloaded artifacts
+        shell: bash
+        run: |
+          # Each build workflow wraps its outputs in a release-artifacts/ folder,
+          # and merge-multiple keeps that nested path. Pull every file up to the
+          # top level so the publish glob sees files, not directories.
+          find release-assets -mindepth 2 -type f -print0 | while IFS= read -r -d '' f; do
+            mv "$f" "release-assets/$(basename "$f")"
+          done
+          find release-assets -mindepth 1 -type d -empty -delete || true
+          echo "=== release-assets contents ==="
+          ls -R release-assets
       - name: Generate SHA-256 checksums
         working-directory: release-assets
         shell: bash
@@ -66,5 +78,6 @@ jobs:
           target_commitish: ${{ github.sha }}
           name: IP-ROCKER v.${{ needs.version.outputs.version }}
           generate_release_notes: true
+          allowUpdates: true
           fail_on_unmatched_files: true
           files: release-assets/*

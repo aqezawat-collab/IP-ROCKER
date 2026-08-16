@@ -18,12 +18,12 @@ jobs:
   cli:
     uses: ./.github/workflows/build-cli.yml
     with:
-      version: ${{ inputs.version || replace(github.ref_name, 'v.', '') }}
+      version: ${{ inputs.version || github.ref_name }}
 
   android:
     uses: ./.github/workflows/build-android.yml
     with:
-      version: ${{ inputs.version || replace(github.ref_name, 'v.', '') }}
+      version: ${{ inputs.version || github.ref_name }}
     secrets: inherit
 
   publish:
@@ -54,11 +54,12 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          # Compute the tag inline (not via a sibling job output) so a re-run of
-          # only this job still resolves the version.
+          # Resolve the tag inline (no sibling-job output) so a re-run of only
+          # this job still computes a valid tag_name. Dispatch passes version
+          # without the v; a pushed tag falls back to github.ref_name.
           tag_name: ${{ inputs.version && format('v.{0}', inputs.version) || github.ref_name }}
           target_commitish: ${{ github.sha }}
-          name: IP-ROCKER v.${{ inputs.version || replace(github.ref_name, 'v.', '') }}
+          name: IP-ROCKER ${{ inputs.version && format('v.{0}', inputs.version) || github.ref_name }}
           generate_release_notes: true
           allowUpdates: true
           fail_on_unmatched_files: true

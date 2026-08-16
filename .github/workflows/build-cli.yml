@@ -84,7 +84,7 @@ jobs:
           build_date="$(date -u +%F)"
           output="release-artifacts/IP-ROCKER-${VERSION}-cli-${{ matrix.asset }}${{ matrix.extension }}"
           go build -trimpath \
-            -ldflags "-s -w -X github.com/aqezawat-collab/IP-ROCKER/pkg/version.Version=${VERSION} -X github.com/aqezawat-collab/IP-ROCKER/pkg/version.Commit=${commit} -X github.com/aqezawat-collab/IP-ROCKER//pkg/version.BuildDate=${build_date} -X github.com/aqezawat-collab/IP-ROCKER/pkg/version.BuiltBy=github-actions" \
+            -ldflags "-s -w -X main.version=${VERSION}" \
             -o "$output" ./cmd/iprocker
       - uses: actions/upload-artifact@v4
         with:

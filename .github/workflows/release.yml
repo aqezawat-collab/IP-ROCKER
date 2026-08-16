@@ -15,35 +15,15 @@ permissions:
   contents: write
 
 jobs:
-  # Resolve a single version string from either the dispatch input or the pushed
-  # tag (the repo tags as v.1.X.0, so strip the leading "v.").
-  version:
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.resolve.outputs.version }}
-    steps:
-      - id: resolve
-        shell: bash
-        run: |
-          if [[ -n "${{ inputs.version }}" ]]; then
-            v="${{ inputs.version }}"
-          else
-            v="${GITHUB_REF_NAME#v.}"
-          fi
-          echo "version=$v" >> "$GITHUB_OUTPUT"
-          echo "Resolved release version: $v"
-
   cli:
-    needs: version
     uses: ./.github/workflows/build-cli.yml
     with:
-      version: ${{ needs.version.outputs.version }}
+      version: ${{ inputs.version || replace(github.ref_name, 'v.', '') }}
 
   android:
-    needs: version
     uses: ./.github/workflows/build-android.yml
     with:
-      version: ${{ needs.version.outputs.version }}
+      version: ${{ inputs.version || replace(github.ref_name, 'v.', '') }}
     secrets: inherit
 
   publish:
@@ -74,9 +54,11 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v.${{ needs.version.outputs.version }}
+          # Compute the tag inline (not via a sibling job output) so a re-run of
+          # only this job still resolves the version.
+          tag_name: ${{ inputs.version && format('v.{0}', inputs.version) || github.ref_name }}
           target_commitish: ${{ github.sha }}
-          name: IP-ROCKER v.${{ needs.version.outputs.version }}
+          name: IP-ROCKER v.${{ inputs.version || replace(github.ref_name, 'v.', '') }}
           generate_release_notes: true
           allowUpdates: true
           fail_on_unmatched_files: true

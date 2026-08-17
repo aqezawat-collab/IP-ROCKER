@@ -16,10 +16,10 @@ import (
 	"time"
 
 	"github.com/Qezawat/IP-ROCKER/internal/cfranges"
+	"github.com/Qezawat/IP-ROCKER/internal/export"
 	"github.com/Qezawat/IP-ROCKER/internal/netports"
 	"github.com/Qezawat/IP-ROCKER/internal/probe"
 	"github.com/Qezawat/IP-ROCKER/internal/scanner"
-	"github.com/Qezawat/IP-ROCKER/internal/export"
 	"github.com/Qezawat/IP-ROCKER/internal/score"
 	"github.com/Qezawat/IP-ROCKER/internal/tui"
 )
@@ -112,11 +112,6 @@ func main() {
 			fail(fmt.Errorf("loading %s: %w", filePath, err))
 		}
 		extraCIDRs = append(extraCIDRs, fileCIDRs...)
-		// A file-supplied list is a strong signal that the user wants only
-		// those addresses, not the built-in Cloudflare sweep.
-		if len(extraCIDRs) > 0 && !*only {
-			// keep the built-in sweep unless -only-cidr is also set
-		}
 	}
 
 	opts := scanner.Options{

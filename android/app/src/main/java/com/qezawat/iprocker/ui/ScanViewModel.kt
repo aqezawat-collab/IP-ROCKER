@@ -47,19 +47,18 @@ data class UiState(
     val visibleResults: List<Candidate>
         get() {
             val r = report
-            // Live phase: the final report has not been produced yet, so a
-            // candidate's health is not finalised. Show every address that
-            // answered so the user sees the scan streaming in, instead of an
-            // empty list behind the "Usable" filter (which would hide hits that
-            // have not been rated yet and look broken). This is the Phase 2
-            // stream — the final, rated list replaces it once the scan ends.
-            if (r == null || r.candidates.isEmpty()) {
-                return liveHits.sortedByDescending { it.score }
-            }
+            // Use the live, streaming hits while the scan runs and the final
+            // report is not ready yet; once the scan ends the authoritative,
+            // rated report replaces them. The filter is applied in BOTH phases so
+            // the Usable / Rejected chips actually narrow the list live (the
+            // chips are shown during scanning too — see FilterRow in ScanScreen),
+            // instead of being a no-op until the scan finishes.
+            val source = if (r == null || r.candidates.isEmpty()) liveHits else r.candidates
+            val sorted = source.sortedByDescending { it.score }
             return when (filter) {
-                ResultFilter.USABLE -> r.candidates.filter { it.healthy }
-                ResultFilter.FLAGGED -> r.candidates.filter { !it.healthy }
-                ResultFilter.ALL -> r.candidates
+                ResultFilter.USABLE -> sorted.filter { it.healthy }
+                ResultFilter.FLAGGED -> sorted.filter { !it.healthy }
+                ResultFilter.ALL -> sorted
             }
         }
 

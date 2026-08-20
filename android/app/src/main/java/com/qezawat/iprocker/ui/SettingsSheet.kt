@@ -497,9 +497,18 @@ fun SettingsSheet(
                 Spacer(Modifier.height(10.dp))
                 OutlinedTextField(
                     value = settings.customRanges,
-                    onValueChange = { v -> onChange { it.copy(customRanges = v) } },
-                    label = { Text("Extra CIDRs") },
-                    singleLine = true,
+                    onValueChange = { v ->
+                        // Auto-switch to line mode when the user types or pastes
+                        // multi-line content so each line is treated as one CIDR/IP,
+                        // matching the behaviour of the file-import button.
+                        val mode = if (v.contains('\n')) "lines" else settings.importMode
+                        onChange { it.copy(customRanges = v, importMode = mode) }
+                    },
+                    label = { Text("Extra CIDRs / IPs") },
+                    placeholder = { Text("1.2.3.0/24\n5.6.7.8\n# one per line or comma-separated") },
+                    singleLine = false,
+                    maxLines = 8,
+                    minLines = 3,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(6.dp))

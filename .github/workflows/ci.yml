@@ -5,6 +5,22 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
+  workflow_dispatch:
+    inputs:
+      extra_cidrs:
+        description: |
+          Extra IPs or CIDRs to scan (comma-separated or one per line).
+          Examples: 104.16.0.0/16  or  1.2.3.4,5.6.7.8
+        required: false
+        default: ""
+      only_custom:
+        description: "Scan only the CIDRs above (ignore built-in Cloudflare ranges)"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
 
 jobs:
   test:
@@ -49,3 +65,54 @@ jobs:
         uses: golangci/golangci-lint-action@v6
         with:
           version: latest
+
+  # Manual scan job — only runs when triggered via workflow_dispatch with
+  # extra_cidrs set. Lets maintainers probe a specific IP block from the
+  # GitHub Actions UI without cloning the repo or installing Go locally.
+  scan:
+    name: Manual IP scan
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && inputs.extra_cidrs != ''
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build iprocker CLI
+        run: go build -trimpath -o iprocker ./cmd/iprocker
+
+      - name: Write IP/CIDR list to file
+        shell: bash
+        run: |
+          # Accept comma-separated or newline-separated input.
+          echo "${{ inputs.extra_cidrs }}" | tr ',' '\n' | sed '/^[[:space:]]*$/d' > custom_ranges.txt
+          echo "Scanning the following ranges:"
+          cat custom_ranges.txt
+
+      - name: Run scan
+        shell: bash
+        run: |
+          ONLY_FLAG=""
+          if [ "${{ inputs.only_custom }}" = "true" ]; then
+            ONLY_FLAG="-only-cidr"
+          fi
+          ./iprocker \
+            -count 500 \
+            -concurrency 100 \
+            -timeout 6s \
+            -download 524288 \
+            -top 20 \
+            $ONLY_FLAG \
+            custom_ranges.txt \
+            | tee scan_results.txt
+
+      - name: Upload scan results
+        uses: actions/upload-artifact@v4
+        with:
+          name: scan-results
+          path: scan_results.txt
+          retention-days: 7

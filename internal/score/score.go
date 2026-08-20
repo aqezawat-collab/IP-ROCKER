@@ -5,6 +5,7 @@ import (
 	"math"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Qezawat/IP-ROCKER/internal/probe"
@@ -171,7 +172,13 @@ func Evaluate(r *probe.Result, c Criteria) *Candidate {
 		cand.Healthy = false
 		cand.Notes = append(cand.Notes, "WebSocket upgrade unavailable")
 	}
-	if c.MinDownloadKBps > 0 && cand.DownloadKBps < c.MinDownloadKBps {
+	// Only enforce the speed floor when a download was actually attempted and
+	// completed. If the download endpoint was unavailable (HTTP 4xx, timeout)
+	// the test is recorded as a note, not as a disqualifying failure, so
+	// DownloadKBps stays zero through no fault of the edge. Penalising a zero
+	// that means "not measured" the same way as a zero that means "too slow"
+	// rejects good edges purely because speed.cloudflare.com was unreachable.
+	if c.MinDownloadKBps > 0 && stats.downloadTested && stats.downloadBps > 0 && cand.DownloadKBps < c.MinDownloadKBps {
 		cand.Healthy = false
 		cand.Notes = append(cand.Notes, "download below threshold")
 	}
@@ -191,8 +198,17 @@ func Evaluate(r *probe.Result, c Criteria) *Candidate {
 	// An address that answers unusually fast but then cannot move data is the
 	// signature of a middlebox answering on the edge's behalf rather than the
 	// edge itself. Flag it, because a latency-only view rates it best in class.
+	//
+	// Only fire when the download was truly attempted AND produced zero bytes —
+	// not when the speed-test endpoint was simply unavailable (HTTP 4xx, timeout,
+	// no /__down route). In those cases downloadBps stays zero but the edge may
+	// be perfectly clean; the endpoint outage is recorded as a note, not a fault.
+	// We distinguish the two by checking that at least one attempt had a real
+	// transfer error (downloadBps==0 AND downloadTested AND no download error
+	// note was left by probe — i.e. the request reached the edge and got data
+	// back but the volume was near zero, which is the true middlebox signature).
 	if stats.successes > 0 && stats.downloadTested && stats.downloadBps <= 0 &&
-		stats.avg > 0 && ms(stats.avg) < 250 {
+		stats.avg > 0 && ms(stats.avg) < 250 && !stats.downloadEndpointUnavailable {
 		cand.Notes = append(cand.Notes,
 			"answered in under 250 ms but carried no data — likely a middlebox, not the edge")
 	}
@@ -228,6 +244,12 @@ type stats struct {
 	wsOk             bool
 	lastErr          string
 	notes            []string
+	// downloadEndpointUnavailable is true when a download was attempted but the
+	// speed-test endpoint refused the request (HTTP 4xx/5xx, timeout, no route)
+	// rather than the transfer being truncated mid-stream. This distinguishes
+	// "endpoint not reachable" from "edge answered but moved no data", which is
+	// the real middlebox signature.
+	downloadEndpointUnavailable bool
 }
 
 func summarise(r *probe.Result) stats {
@@ -245,6 +267,14 @@ func summarise(r *probe.Result) stats {
 		}
 		if a.Note != "" {
 			s.notes = append(s.notes, a.Note)
+			// A note that starts with "download skipped" means the speed-test
+			// endpoint refused the request (HTTP 4xx, timeout, no /__down route).
+			// This is not a sign the edge is broken; mark it so the middlebox
+			// heuristic below does not fire on a good edge with an unavailable
+			// endpoint.
+			if strings.HasPrefix(a.Note, "download skipped") {
+				s.downloadEndpointUnavailable = true
+			}
 		}
 		if a.TLSOk {
 			s.tlsOk = true

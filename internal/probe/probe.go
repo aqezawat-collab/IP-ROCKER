@@ -389,14 +389,30 @@ func probeHTTP(ctx context.Context, ip net.IP, sni string, cfg Config) Attempt {
 		if err != nil {
 			// A truncated transfer means the path permitted the request but
 			// cannot sustain data — the exact middlebox signature a latency-only
-			// scanner misses. That must disqualify the attempt. An endpoint that
-			// refuses the request (rate limit, challenge) is a property of the
-			// host and stays a non-fatal note, as does a transient network error.
+			// scanner misses. That must disqualify the attempt.
+			//
+			// An endpoint that refuses the request (HTTP 4xx/5xx) is a property
+			// of the speed-test host, not the edge — many clean edges don't serve
+			// /__down at all on custom fronts. Treat those as non-fatal notes so
+			// a perfectly good edge isn't rejected just because the speed-test
+			// endpoint happened to return 404 or 403.
+			//
+			// A transient network error (timeout, reset) is also non-fatal: the
+			// trace already confirmed the edge is reachable; one failed transfer
+			// is noise, not proof the edge is broken.
 			if strings.Contains(err.Error(), "truncated") {
 				att.Err = "download: " + err.Error()
 				return att
 			}
-			att.Note = "download: " + err.Error()
+			// An HTTP-level refusal (rate limit, 404, geo-block) means the
+			// speed-test endpoint was unavailable, not that the edge is broken.
+			// Label it "download skipped" so the score layer can distinguish
+			// "endpoint refused" from "transfer started but moved no data".
+			if isEndpointError(err) {
+				att.Note = "download skipped: " + err.Error()
+			} else {
+				att.Note = "download: " + err.Error()
+			}
 		} else {
 			att.DownloadBps = bps
 		}

@@ -45,8 +45,8 @@ jobs:
       ANDROID_VERSION_CODE: "10000"
       KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
           # gomobile@latest now requires Go >= 1.25; the module still targets 1.24
           # but the toolchain must be 1.25+ to install/bind it.

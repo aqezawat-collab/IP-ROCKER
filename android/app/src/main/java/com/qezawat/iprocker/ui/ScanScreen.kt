@@ -395,7 +395,7 @@ private fun FilterRow(
         val rejectedCount = testedCount - usableCount
         val options = listOf(
             ResultFilter.USABLE to "Usable ($usableCount)",
-            ResultFilter.ALL to "All ($answeredCount)",
+            ResultFilter.ALL to "All ($testedCount)",
             ResultFilter.FLAGGED to "Rejected ($rejectedCount)",
         )
         options.forEach { (filter, label) ->

@@ -390,13 +390,18 @@ private fun FilterRow(
     onSelect: (ResultFilter) -> Unit,
 ) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        // All  = every address that was probed (answered + no-response)
-        // Rejected = probed - usable (no-response + answered-but-failed)
-        val rejectedCount = testedCount - usableCount
+        // All  = every address that answered (candidates — the ones the Go core
+        //        measured and returned; no-response addresses are never sent back
+        //        because there is nothing to show for them).
+        // Rejected = answered but failed at least one check (!healthy)
+        // The testedCount badge on All is intentionally the full probed count so
+        // the user knows how many were swept, even though the list only shows
+        // the ones that answered.
+        val flaggedCount = answeredCount - usableCount
         val options = listOf(
             ResultFilter.USABLE to "Usable ($usableCount)",
-            ResultFilter.ALL to "All ($testedCount)",
-            ResultFilter.FLAGGED to "Rejected ($rejectedCount)",
+            ResultFilter.ALL to "All probed ($testedCount)",
+            ResultFilter.FLAGGED to "Rejected ($flaggedCount)",
         )
         options.forEach { (filter, label) ->
             FilterChip(

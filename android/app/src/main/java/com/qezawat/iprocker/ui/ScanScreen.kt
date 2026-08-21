@@ -498,12 +498,18 @@ private fun DetailSheet(
                 DetailRow("Min latency", "${candidate.minLatencyMs.toInt()} ms")
                 DetailRow("Jitter", "${candidate.jitterMs.toInt()} ms")
                 DetailRow("Loss", "${candidate.lossPercent.toInt()} %")
-                if (candidate.downloadKbps > 0) {
-                    DetailRow("Download", formatSpeed(candidate.downloadKbps))
-                }
-                if (candidate.uploadKbps > 0) {
-                    DetailRow("Upload", formatSpeed(candidate.uploadKbps))
-                }
+                DetailRow(
+                    "Download",
+                    if (candidate.downloadKbps > 0) formatSpeed(candidate.downloadKbps)
+                    else if (candidate.notes.any { it.startsWith("download") }) "unavailable"
+                    else "-",
+                )
+                DetailRow(
+                    "Upload",
+                    if (candidate.uploadKbps > 0) formatSpeed(candidate.uploadKbps)
+                    else if (candidate.notes.any { it.startsWith("upload") }) "unavailable"
+                    else "-",
+                )
                 if (candidate.colo.isNotBlank()) {
                     DetailRow("Colo", candidate.colo)
                 }

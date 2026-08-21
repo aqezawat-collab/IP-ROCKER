@@ -528,13 +528,18 @@ private fun DetailSheet(
             if (candidate.notes.isNotEmpty()) {
                 Spacer(Modifier.height(12.dp))
                 RockerCard {
-                    SectionLabel("Why flagged")
+                    // Usable candidates carry informational notes (e.g. endpoint
+                    // was unavailable for a speed test) — those are not rejection
+                    // reasons, so label them honestly.
+                    SectionLabel(
+                        if (candidate.healthy) "Notes" else "Why flagged",
+                    )
                     Spacer(Modifier.height(8.dp))
                     candidate.notes.forEach { note ->
                         Text(
                             text = "• $note",
                             style = MaterialTheme.typography.bodySmall,
-                            color = VerdictCaution,
+                            color = if (candidate.healthy) TextSecondary else VerdictCaution,
                         )
                         Spacer(Modifier.height(4.dp))
                     }

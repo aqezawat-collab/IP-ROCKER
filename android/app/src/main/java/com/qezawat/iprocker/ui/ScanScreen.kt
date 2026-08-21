@@ -217,12 +217,11 @@ fun ScanScreen(viewModel: ScanViewModel = viewModel()) {
                 item {
                     FilterRow(
                         current = state.filter,
-                        // During the live phase health is not finalised, so count
-                        // only the hits already marked healthy rather than every
-                        // hit; otherwise "Usable" over-counts and "Rejected" reads
-                        // zero even when addresses were rejected.
                         usableCount = state.report?.cleanCount ?: state.liveHits.count { it.healthy },
-                        totalCount = state.report?.candidates?.size ?: state.liveHits.size,
+                        // answeredCount = addresses that responded (candidates list)
+                        answeredCount = state.report?.candidates?.size ?: state.liveHits.size,
+                        // testedCount = every address probed, including no-response ones
+                        testedCount = state.report?.tested?.toInt() ?: state.tested,
                         onSelect = viewModel::setFilter,
                     )
                 }
@@ -386,14 +385,18 @@ private fun ControlCard(
 private fun FilterRow(
     current: ResultFilter,
     usableCount: Int,
-    totalCount: Int,
+    answeredCount: Int,
+    testedCount: Int,
     onSelect: (ResultFilter) -> Unit,
 ) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        // All  = every address that was probed (answered + no-response)
+        // Rejected = probed - usable (no-response + answered-but-failed)
+        val rejectedCount = testedCount - usableCount
         val options = listOf(
             ResultFilter.USABLE to "Usable ($usableCount)",
-            ResultFilter.ALL to "All ($totalCount)",
-            ResultFilter.FLAGGED to "Rejected (${totalCount - usableCount})",
+            ResultFilter.ALL to "All ($testedCount)",
+            ResultFilter.FLAGGED to "Rejected ($rejectedCount)",
         )
         options.forEach { (filter, label) ->
             FilterChip(

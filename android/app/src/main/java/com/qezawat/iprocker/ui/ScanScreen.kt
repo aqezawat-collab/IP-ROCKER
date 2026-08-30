@@ -248,6 +248,8 @@ fun ScanScreen(viewModel: ScanViewModel = viewModel()) {
                 ResultCard(
                     candidate = candidate,
                     rank = index + 1,
+                    downloadTestEnabled = state.settings.speedTest,
+                    uploadTestEnabled = state.settings.uploadTest,
                     onDetails = viewModel::showDetails,
                     onCopy = { copyToClipboard(context, it.endpoint) },
                 )

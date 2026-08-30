@@ -50,6 +50,8 @@ import com.qezawat.iprocker.ui.theme.VerdictDirty
 fun ResultCard(
     candidate: Candidate,
     rank: Int,
+    downloadTestEnabled: Boolean = true,
+    uploadTestEnabled: Boolean = false,
     onDetails: (Candidate) -> Unit,
     onCopy: (Candidate) -> Unit,
     modifier: Modifier = Modifier,
@@ -113,8 +115,8 @@ fun ResultCard(
             // run or its endpoint was unavailable. Hiding the chip made it look
             // like the scanner had no download/upload support at all, while the
             // detail sheet already reports the honest fallback value.
-            MetricChip(displaySpeed(candidate.downloadKbps), "down")
-            MetricChip(displaySpeed(candidate.uploadKbps), "up")
+            MetricChip(displaySpeed(candidate.downloadKbps, downloadTestEnabled), "down")
+            MetricChip(displaySpeed(candidate.uploadKbps, uploadTestEnabled), "up")
             if (candidate.colo.isNotBlank()) {
                 MetricChip(candidate.colo, "colo")
             }
@@ -226,4 +228,8 @@ fun formatSpeed(kbps: Double): String = when {
  * Keeps a metric present when it was not measured, instead of removing the
  * entire download/upload indicator from the result card.
  */
-fun displaySpeed(kbps: Double): String = if (kbps > 0) formatSpeed(kbps) else "—"
+fun displaySpeed(kbps: Double, enabled: Boolean = true): String = when {
+    !enabled -> "OFF"
+    kbps > 0 -> formatSpeed(kbps)
+    else -> "—"
+}

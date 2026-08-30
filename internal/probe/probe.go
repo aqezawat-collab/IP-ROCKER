@@ -108,6 +108,19 @@ type Config struct {
 	// path is not being reset mid-session. Zero disables the hold check.
 	HoldDuration time.Duration
 
+	// LongTest, when true, performs a sustained multi-second test on top
+	// candidates after the main sweep: it holds a single connection open for
+	// LongTestDuration while pumping downloads, then verifies the connection
+	// is still alive. A 3 s idle hold cannot catch filters that reset a
+	// session after 10-15 s of real traffic; this is the test that can.
+	// LongTest runs only on the top-N candidates from the main scan, so it
+	// adds roughly LongTestDuration of work, not LongTestDuration x Count.
+	LongTest bool
+	// LongTestDuration is how long the sustained long-test should run.
+	// 10-15 s catches most "resets after warmup" filters on censored paths
+	// without making a 5k-address scan take hours.
+	LongTestDuration time.Duration
+
 	// WebSocketPath enables a WebSocket upgrade check, which is the transport
 	// a CDN-fronted proxy config actually uses.
 	WebSocketPath string
@@ -535,6 +548,193 @@ func holdCheck(ctx context.Context, ip net.IP, sni string, cfg Config) bool {
 // middlebox is answering for the edge, and stays fatal.
 func isEndpointError(err error) bool {
 	return err != nil && strings.HasPrefix(err.Error(), "HTTP ")
+}
+
+// LongResult summarises a long-test run.
+type LongResult struct {
+	// Held is true when the connection survived the full test duration with
+	// data flowing through it. A connection that dies mid-stream counts as
+	// failed, which is the whole point of running this test.
+	Held bool
+	// Bytes is the total amount of data transferred during the test.
+	Bytes int64
+	// Duration is the wall time spent holding the connection.
+	Duration time.Duration
+	// Err is the failure reason when Held is false.
+	Err string
+}
+
+// LongTest holds a single TLS connection to the edge open for d, repeatedly
+// fetching chunks of /__down?bytes=N through it. A connection that survives
+// d with consistent throughput is one a real session can ride; one that
+// resets, stalls or drops mid-test will be caught here, where the existing
+// 3 s idle hold could not. This is the test that addresses the gap between
+// "Phase 2 says healthy" and "live VPN goes red after a few minutes": the
+// filter that resets only after 10-15 s of real traffic is the one most
+// scanners miss, and this is what surfaces it.
+func LongTest(ctx context.Context, ip net.IP, sni, host string, cfg Config) LongResult {
+	if cfg.LongTestDuration <= 0 {
+		return LongResult{Err: "long test disabled"}
+	}
+	if host == "" {
+		host = sni
+	}
+	d := cfg.LongTestDuration
+	// A 256 KB chunk keeps individual requests short while still producing
+	// real traffic. 64 KB is too small to outpace a per-packet reset filter.
+	chunk := int64(256 * 1024)
+	timeout := d + 5*time.Second
+	if cfg.Timeout > 0 && cfg.Timeout*2 > timeout {
+		timeout = cfg.Timeout * 2
+	}
+
+	dialCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	tlsDialer := &tls.Dialer{
+		NetDialer: &net.Dialer{},
+		Config: &tls.Config{
+			ServerName:         sni,
+			InsecureSkipVerify: cfg.InsecureSkipVerify,
+			MinVersion:         tls.VersionTLS12,
+		},
+	}
+	conn, err := tlsDialer.DialContext(dialCtx, "tcp", dialTarget(ip, cfg.Port))
+	if err != nil {
+		return LongResult{Err: "dial: " + cleanErr(err)}
+	}
+	defer conn.Close()
+
+	scheme := "https"
+	if isHTTPPort(cfg.Port) {
+		scheme = "http"
+	}
+
+	start := time.Now()
+	deadline := start.Add(d)
+	var total int64
+	rounds := 0
+	stalls := 0
+
+	for {
+		if ctx.Err() != nil {
+			return LongResult{Bytes: total, Duration: time.Since(start), Err: "cancelled"}
+		}
+		if time.Now().After(deadline) {
+			break
+		}
+		// Read fresh trace from the held connection. A reset filter will
+		// surface here as a write or read error.
+		url := fmt.Sprintf("%s://%s/__down?bytes=%d", scheme, speedTestHost, chunk)
+		req := fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: %s\r\nConnection: keep-alive\r\n\r\n",
+			url, host, browserUA)
+		// Per-round deadline so a stalled chunk cannot eat the whole budget.
+		if err := conn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+			return LongResult{Bytes: total, Duration: time.Since(start), Err: "set deadline: " + cleanErr(err)}
+		}
+		rdStart := time.Now()
+		if _, err := conn.Write([]byte(req)); err != nil {
+			return LongResult{Bytes: total, Duration: time.Since(start), Err: "write: " + cleanErr(err)}
+		}
+		// Read until we have consumed the response headers and the chunk body.
+		// io.ReadAll with a generous cap is enough — the chunk is bounded.
+		readCtx, readCancel := context.WithTimeout(dialCtx, 5*time.Second)
+		n, readErr := readWithTimeout(readCtx, conn, chunk+1024)
+		readCancel()
+		rdDur := time.Since(rdStart)
+		if readErr != nil {
+			return LongResult{Bytes: total, Duration: time.Since(start), Err: "read: " + readErr.Error()}
+		}
+		// Anything under 1 MB/s sustained across a 256 KB chunk is a
+		// filter-side throttle — a healthy edge does not move that slowly.
+		// Track stalls but keep going: one slow round is not proof, three is.
+		if int64(rdDur) > 0 && n*int64(time.Second)/int64(rdDur) < 1<<20 {
+			stalls++
+			if stalls >= 3 {
+				return LongResult{Bytes: total, Duration: time.Since(start), Err: "sustained stall (filter throttle)"}
+			}
+		} else {
+			stalls = 0
+		}
+		total += n
+		rounds++
+	}
+
+	// After the holding window, send one final GET on the same connection to
+	// prove it is still up. A reset during the idle stretch shows up here.
+	probeReq := fmt.Sprintf("GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: %s\r\nConnection: close\r\n\r\n",
+		cfg.TracePath, host, browserUA)
+	if err := conn.SetDeadline(time.Now().Add(3 * time.Second)); err == nil {
+		if _, err := conn.Write([]byte(probeReq)); err == nil {
+			buf := make([]byte, 256)
+			n, _ := conn.Read(buf)
+			if n == 0 || !strings.Contains(string(buf[:n]), "HTTP/1.") {
+				return LongResult{Bytes: total, Duration: time.Since(start),
+					Err: "connection died during long test (no HTTP response after hold)"}
+			}
+		} else {
+			return LongResult{Bytes: total, Duration: time.Since(start),
+				Err: "connection reset after long test hold: " + cleanErr(err)}
+		}
+	}
+
+	return LongResult{
+		Held:     true,
+		Bytes:    total,
+		Duration: time.Since(start),
+	}
+}
+
+// readWithTimeout reads up to max bytes from conn, returning when the chunk
+// is complete or the timeout fires. It returns the actual byte count read.
+func readWithTimeout(ctx context.Context, conn net.Conn, max int64) (int64, error) {
+	done := make(chan struct{})
+	var (
+		n     int64
+		readE error
+	)
+	go func() {
+		buf := make([]byte, 32*1024)
+		for n < max {
+			if ctx.Err() != nil {
+				break
+			}
+			conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+			r, err := conn.Read(buf)
+			if r > 0 {
+				n += int64(r)
+			}
+			if err != nil {
+				if err == io.EOF {
+					break
+				}
+				// Treat a per-iteration read deadline as "no more data right
+				// now, check completion below"; the chunk-size heuristic decides
+				// whether the response is finished.
+				if ne, ok := err.(net.Error); ok && ne.Timeout() {
+					// If we have at least the chunk we asked for, we are done.
+					if n >= max*9/10 {
+						break
+					}
+					// Otherwise keep reading; the outer deadline will trip.
+					continue
+				}
+				readE = err
+				break
+			}
+		}
+		close(done)
+	}()
+	select {
+	case <-ctx.Done():
+		// Best-effort: if the deadline hit but data was already read, accept it.
+		if n >= max/2 {
+			return n, nil
+		}
+		return n, ctx.Err()
+	case <-done:
+		return n, readE
+	}
 }
 
 // measureDownload times a payload fetch through the pinned edge. host is the

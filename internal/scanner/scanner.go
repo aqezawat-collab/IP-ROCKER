@@ -4,6 +4,7 @@ package scanner
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"strings"
 	"sync"
@@ -266,6 +267,24 @@ func (s *Scanner) Run(ctx context.Context) (*Report, error) {
 	}
 	score.Rank(cands)
 
+	// Long-test the top healthy candidates before TopN is applied. The 3 s
+	// idle hold in the regular probe cannot catch filters that reset a
+	// session after 10-15 s of real traffic — the failure mode where the
+	// scan reports "healthy" but live VPN use goes red minutes later. A
+	// long test on the top survivors closes that gap, at the cost of one
+	// extra LongTestDuration of work per candidate (run in parallel).
+	if s.opts.Probe.LongTest && s.opts.Probe.LongTestDuration > 0 && ctx.Err() == nil {
+		s.longTestTop(ctx, cands)
+		// Demote any candidate the long test ruled out, then re-rank so the
+		// survivors float to the top.
+		for _, c := range cands {
+			if !c.Healthy {
+				score.Rank(cands)
+				break
+			}
+		}
+	}
+
 	// TopN mirrors the TUI "Phase 2 picks": the scan still probes Count
 	// addresses, but only the best TopN are kept for the report and export.
 	if s.opts.TopN > 0 && len(cands) > s.opts.TopN {
@@ -372,6 +391,74 @@ func anyOk(r *probe.Result) bool {
 		}
 	}
 	return false
+}
+
+// longTestTop runs a long-duration test on the top healthy candidates.
+//
+// The test runs on a bounded pool (the 8 best healthy candidates) so a 5k
+// scan does not balloon into hours of work. Failed long tests demote the
+// candidate to unhealthy with a note explaining why; the report can then
+// show "this looked fast but the connection died under sustained load".
+// Run in parallel, since each test is independent and slow.
+func (s *Scanner) longTestTop(ctx context.Context, cands []*score.Candidate) {
+	const longTestPool = 8
+	pool := make([]*score.Candidate, 0, longTestPool)
+	for _, c := range cands {
+		if c.Healthy {
+			pool = append(pool, c)
+			if len(pool) >= longTestPool {
+				break
+			}
+		}
+	}
+	if len(pool) == 0 {
+		return
+	}
+
+	s.report(Progress{
+		Phase:  PhaseNeighbors,
+		Message: fmt.Sprintf("long-testing top %d survivors for %.0fs each", len(pool), s.opts.Probe.LongTestDuration.Seconds()),
+	})
+
+	cfg := s.opts.Probe
+	sem := make(chan struct{}, 4) // at most 4 parallel long tests
+	var wg sync.WaitGroup
+	for _, c := range pool {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(c *score.Candidate) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			if ctx.Err() != nil {
+				return
+			}
+			ip := net.ParseIP(c.IP)
+			if ip == nil {
+				return
+			}
+			sni := cfg.SNI
+			if sni == "" {
+				// Match the rotating SNI used by the regular probe so the
+				// test routes through the same TLS server name a real
+				// session would use.
+				sni = "speed.cloudflare.com"
+			}
+			host := cfg.Host
+			if host == "" {
+				host = sni
+			}
+			res := probe.LongTest(ctx, ip, sni, host, cfg)
+			if !res.Held {
+				c.Healthy = false
+				note := "long test failed: " + res.Err
+				if res.Duration > 0 {
+					note += fmt.Sprintf(" (held %s, %d bytes)", res.Duration.Round(time.Second), res.Bytes)
+				}
+				c.Notes = append(c.Notes, note)
+			}
+		}(c)
+	}
+	wg.Wait()
 }
 
 // enrichReputation looks up the IP reputation for each candidate. The lookups

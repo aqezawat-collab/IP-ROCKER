@@ -109,12 +109,12 @@ fun ResultCard(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             MetricChip("${candidate.avgLatencyMs.toInt()}ms", "latency")
-            if (candidate.downloadKbps > 0) {
-                MetricChip(formatSpeed(candidate.downloadKbps), "down")
-            }
-            if (candidate.uploadKbps > 0) {
-                MetricChip(formatSpeed(candidate.uploadKbps), "up")
-            }
+            // Keep both throughput metrics visible even when a test was not
+            // run or its endpoint was unavailable. Hiding the chip made it look
+            // like the scanner had no download/upload support at all, while the
+            // detail sheet already reports the honest fallback value.
+            MetricChip(displaySpeed(candidate.downloadKbps), "down")
+            MetricChip(displaySpeed(candidate.uploadKbps), "up")
             if (candidate.colo.isNotBlank()) {
                 MetricChip(candidate.colo, "colo")
             }
@@ -221,3 +221,9 @@ fun formatSpeed(kbps: Double): String = when {
     kbps >= 1 -> "%.0f KB/s".format(kbps)
     else -> "<1 KB/s"
 }
+
+/**
+ * Keeps a metric present when it was not measured, instead of removing the
+ * entire download/upload indicator from the result card.
+ */
+fun displaySpeed(kbps: Double): String = if (kbps > 0) formatSpeed(kbps) else "—"

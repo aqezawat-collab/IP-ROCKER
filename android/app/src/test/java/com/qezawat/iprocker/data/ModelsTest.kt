@@ -38,6 +38,8 @@ class ModelsTest {
 
         assertEquals("104.25.228.176:443", c.endpoint)
         assertEquals(71.3, c.score, 0.01)
+        assertEquals(360.2, c.downloadKbps, 0.01)
+        assertEquals(0.0, c.uploadKbps, 0.01)
         assertTrue(c.healthy)
         assertTrue(c.heldOpen)
         assertEquals("FRA", c.colo)

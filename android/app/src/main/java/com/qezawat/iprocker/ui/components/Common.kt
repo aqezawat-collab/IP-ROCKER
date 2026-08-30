@@ -138,10 +138,10 @@ fun DetailRow(
     }
 }
 
-/** A yes/no check with an explicit word, never colour alone. */
+/** A pass/fail check with an explicit word, never colour alone. */
 @Composable
-fun FlagChip(label: String, flagged: Boolean, modifier: Modifier = Modifier) {
-    val tint = if (flagged) VerdictDirty else VerdictClean
+fun FlagChip(label: String, passed: Boolean, modifier: Modifier = Modifier) {
+    val tint = if (passed) VerdictClean else VerdictDirty
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))
@@ -155,7 +155,7 @@ fun FlagChip(label: String, flagged: Boolean, modifier: Modifier = Modifier) {
         )
         Spacer(Modifier.height(2.dp))
         Text(
-            text = if (flagged) "YES" else "NO",
+            text = if (passed) "YES" else "NO",
             style = MaterialTheme.typography.labelMedium,
             color = tint,
             fontWeight = FontWeight.Bold,

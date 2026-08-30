@@ -383,9 +383,28 @@ func probeHTTP(ctx context.Context, ip net.IP, sni string, cfg Config) Attempt {
 		att.HeldOpen = holdCheck(ctx, ip, sni, cfg)
 	}
 
+	// The reachability client uses the user-supplied SNI/Host, but the
+	// throughput endpoint needs speed.cloudflare.com's TLS SNI as well as its
+	// HTTP authority. Reusing the config client makes a custom VLESS/Trojan
+	// SNI route /__down to the user's panel, which returns an error and leaves
+	// DL/UP at zero even though the edge is healthy.
+	speedClient := client
+	var speedTransport *http.Transport
+	if cfg.DownloadBytes > 0 || cfg.UploadBytes > 0 {
+		speedTransport = pinnedTransport(ip, cfg.Port, speedTestHost, cfg.InsecureSkipVerify, cfg.Timeout)
+		speedClient = &http.Client{
+			Transport: speedTransport,
+			Timeout:   cfg.Timeout * 3,
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		}
+		defer speedTransport.CloseIdleConnections()
+	}
+
 	if cfg.DownloadBytes > 0 {
 		att.DownloadTested = true
-		bps, err := measureDownload(ctx, client, scheme, speedTestHost, cfg)
+		bps, err := measureDownload(ctx, speedClient, scheme, speedTestHost, cfg)
 		if err != nil {
 			// A truncated transfer means the path permitted the request but
 			// cannot sustain data — the exact middlebox signature a latency-only
@@ -419,7 +438,7 @@ func probeHTTP(ctx context.Context, ip net.IP, sni string, cfg Config) Attempt {
 	}
 
 	if cfg.UploadBytes > 0 {
-		bps, err := measureUpload(ctx, client, scheme, speedTestHost, cfg)
+		bps, err := measureUpload(ctx, speedClient, scheme, speedTestHost, cfg)
 		if err != nil {
 			// A failed upload downgrades the address but does not disqualify
 			// it, because not every front exposes an upload endpoint.

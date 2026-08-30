@@ -28,6 +28,8 @@ type edgeOptions struct {
 	// captureHost, when non-nil, receives the Host header of the download
 	// request, proving the throughput probe targets speed.cloudflare.com.
 	captureHost *string
+	// captureSNI, when non-nil, receives the TLS SNI of the download request.
+	captureSNI *string
 }
 
 func newEdge(t *testing.T, opts edgeOptions) (*httptest.Server, net.IP, int) {
@@ -50,6 +52,10 @@ func newEdge(t *testing.T, opts edgeOptions) (*httptest.Server, net.IP, int) {
 		if opts.captureHost != nil {
 			*opts.captureHost = r.Host
 		}
+		if opts.captureSNI != nil && r.TLS != nil {
+			*opts.captureSNI = r.TLS.ServerName
+		}
+
 		if opts.downloadStatus != 0 {
 			w.WriteHeader(opts.downloadStatus)
 			return
@@ -182,6 +188,30 @@ func TestProbeRejectsNonCloudflareResponse(t *testing.T) {
 
 // A truncated transfer is the signature of a path that permits the request but
 // cannot sustain data, which is exactly what a latency-only scanner misses.
+func TestConfigSNIUsesPublicSpeedEndpointSNI(t *testing.T) {
+	var gotHost, gotSNI string
+	_, ip, port := newEdge(t, edgeOptions{captureHost: &gotHost, captureSNI: &gotSNI})
+
+	cfg := baseConfig(port)
+	cfg.SNI = "panel.example.com"
+	cfg.Host = "panel.example.com"
+	cfg.DownloadBytes = 64 * 1024
+
+	res := Probe(context.Background(), ip, cfg)
+	if !res.Attempts[0].Ok() {
+		t.Fatalf("config-front probe failed: %s", res.Attempts[0].Err)
+	}
+	if res.Attempts[0].DownloadBps <= 0 {
+		t.Fatal("config-front download was not measured")
+	}
+	if gotHost != speedTestHost {
+		t.Errorf("download Host = %q, want %q", gotHost, speedTestHost)
+	}
+	if gotSNI != speedTestHost {
+		t.Errorf("download TLS SNI = %q, want %q", gotSNI, speedTestHost)
+	}
+}
+
 func TestProbeRejectsTruncatedDownload(t *testing.T) {
 	_, ip, port := newEdge(t, edgeOptions{downloadShort: true})
 

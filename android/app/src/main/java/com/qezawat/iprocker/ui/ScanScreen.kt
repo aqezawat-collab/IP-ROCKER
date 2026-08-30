@@ -208,7 +208,7 @@ fun ScanScreen(viewModel: ScanViewModel = viewModel()) {
             if (report != null) {
                 item {
                     SectionLabel(
-                        "Phase 2 · ${report.cleanCount} usable of ${report.candidates.size}",
+                        "Phase 2 · ${report.cleanCount} usable of ${report.candidates.size} answered",
                     )
                 }
             }
@@ -218,12 +218,25 @@ fun ScanScreen(viewModel: ScanViewModel = viewModel()) {
                     FilterRow(
                         current = state.filter,
                         usableCount = state.report?.cleanCount ?: state.liveHits.count { it.healthy },
-                        // answeredCount = addresses that responded (candidates list)
+                        // The report may be capped by Top N, so this is the number
+                        // of retained answering candidates shown by the filter.
                         answeredCount = state.report?.candidates?.size ?: state.liveHits.size,
-                        // testedCount = every address probed, including no-response ones
+                        // testedCount is every address probed, including no-response ones.
                         testedCount = state.report?.tested?.toInt() ?: state.tested,
                         onSelect = viewModel::setFilter,
                     )
+                }
+                if (report != null && report.cleanCount == 0 && report.candidates.isNotEmpty()) {
+                    item {
+                        Text(
+                            "No retained address passed every check. If you only need " +
+                                "fast answering edges, turn off Strict mode in Settings; " +
+                                "Strict mode requires WebSocket support.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = VerdictCaution,
+                            modifier = Modifier.padding(horizontal = 4.dp),
+                        )
+                    }
                 }
             }
 
@@ -400,7 +413,7 @@ private fun FilterRow(
         val flaggedCount = answeredCount - usableCount
         val options = listOf(
             ResultFilter.USABLE to "Usable ($usableCount)",
-            ResultFilter.ALL to "All probed ($testedCount)",
+            ResultFilter.ALL to "Answered ($answeredCount)",
             ResultFilter.FLAGGED to "Rejected ($flaggedCount)",
         )
         options.forEach { (filter, label) ->

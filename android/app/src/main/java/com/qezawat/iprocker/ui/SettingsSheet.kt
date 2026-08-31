@@ -363,6 +363,29 @@ fun SettingsSheet(
                     checked = settings.strict,
                     onCheckedChange = { v -> onChange { it.copy(strict = v) } },
                 )
+		SettingToggle(
+		    title = "Sustained long test",
+		    subtitle = "Runs a 10-15 s download hold on the top survivors to catch " +
+		        "filters that reset after a few seconds of real traffic. Adds a few " +
+		        "seconds per top candidate.",
+		    checked = settings.longTest,
+		    onCheckedChange = { v -> onChange { it.copy(longTest = v) } },
+		)
+		if (settings.longTest) {
+		    Spacer(Modifier.height(6.dp))
+		    Text(
+		        "Long-test duration: ${settings.longTestMs / 1000} s",
+		        style = MaterialTheme.typography.bodySmall,
+		        color = TextSecondary,
+		    )
+		    Spacer(Modifier.height(4.dp))
+		    Slider(
+		        value = settings.longTestMs.toFloat(),
+		        onValueChange = { v -> onChange { it.copy(longTestMs = v.toInt()) } },
+		        valueRange = 5000f..30000f,
+		        steps = 5,
+		    )
+		}
             }
 
             Spacer(Modifier.height(12.dp))

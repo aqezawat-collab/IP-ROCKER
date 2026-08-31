@@ -499,6 +499,8 @@ func (s settings) probeConfig(port int) probe.Config {
 		Tries:         s.tries(),
 		Timeout:       s.timeout(),
 		HoldDuration:  3 * time.Second,
+		LongTest:        false,
+		LongTestDuration: 0,
 		DownloadBytes: s.downloadBytes(),
 		UploadBytes:   s.uploadBytes(),
 	}

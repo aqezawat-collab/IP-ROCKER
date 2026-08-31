@@ -53,6 +53,8 @@ type ScanRequest struct {
 	tries          int32
 	timeoutMs      int32
 	holdMs         int32
+	longTest       bool
+	longTestMs     int32
 	downloadBytes  int64
 	uploadBytes    int64
 	sni            string
@@ -98,6 +100,8 @@ func (r *ScanRequest) SetMode(v string)          { r.mode = v }
 func (r *ScanRequest) SetTries(v int32)          { r.tries = v }
 func (r *ScanRequest) SetTimeoutMs(v int32)      { r.timeoutMs = v }
 func (r *ScanRequest) SetHoldMs(v int32)         { r.holdMs = v }
+func (r *ScanRequest) SetLongTest(v bool)        { r.longTest = v }
+func (r *ScanRequest) SetLongTestMs(v int32)     { r.longTestMs = v }
 func (r *ScanRequest) SetDownloadBytes(v int64)  { r.downloadBytes = v }
 func (r *ScanRequest) SetUploadBytes(v int64)    { r.uploadBytes = v }
 func (r *ScanRequest) SetSNI(v string)           { r.sni = v }
@@ -342,6 +346,8 @@ func (r *ScanRequest) toOptions(listener ProgressListener) (scanner.Options, err
 			SNI:              r.sni,
 			Host:             r.host,
 			HoldDuration:     time.Duration(r.holdMs) * time.Millisecond,
+			LongTest:         r.longTest,
+			LongTestDuration: time.Duration(r.longTestMs) * time.Millisecond,
 			DownloadBytes:    r.downloadBytes,
 			UploadBytes:      r.uploadBytes,
 			WebSocketPath:    r.wsPath,

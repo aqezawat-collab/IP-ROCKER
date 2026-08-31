@@ -67,6 +67,8 @@ class ScannerBridge {
         req.setTries(settings.tries)
         req.setTimeoutMs(settings.timeoutMs)
         req.setHoldMs(if (settings.stabilityCheck) settings.holdMs else 0)
+        req.setLongTest(settings.longTest)
+        req.setLongTestMs(settings.longTestMs)
         req.setDownloadBytes(if (settings.speedTest) settings.downloadBytes else 0L)
         req.setUploadBytes(if (settings.uploadTest) settings.uploadBytes else 0L)
         // A speed floor is only meaningful when a download sample is taken.

@@ -47,6 +47,8 @@ func main() {
 		extra       = flag.String("cidr", "", "comma-separated IPs/CIDRs to include (bare IPs become /32)")
 		only        = flag.Bool("only-cidr", false, "scan only the CIDRs given by -cidr")
 		top         = flag.Int("top", 20, "how many results to print")
+		longTest    = flag.Bool("long-test", false, "run a sustained long-test on the top survivors to catch filters that reset after 10-15 s")
+		longTestMs  = flag.Int("long-test-ms", 15000, "how long the long-test should run per candidate (ms)")
 		jsonOut     = flag.String("json", "", "write the full report to this file as JSON")
 		txtOut      = flag.String("out", "", "write clean ip:port lines to this file")
 		showVersion = flag.Bool("version", false, "print version and exit")
@@ -126,6 +128,8 @@ func main() {
 			SNI:              *sni,
 			Host:             *host,
 			HoldDuration:     *hold,
+			LongTest:         *longTest,
+			LongTestDuration: time.Duration(*longTestMs) * time.Millisecond,
 			DownloadBytes:    *download,
 			UploadBytes:      *upload,
 			WebSocketPath:    *wsPath,

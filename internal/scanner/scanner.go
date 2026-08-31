@@ -285,11 +285,11 @@ func (s *Scanner) Run(ctx context.Context) (*Report, error) {
 		}
 	}
 
-	// TopN mirrors the TUI "Phase 2 picks": the scan still probes Count
-	// addresses, but only the best TopN are kept for the report and export.
-	if s.opts.TopN > 0 && len(cands) > s.opts.TopN {
-		cands = cands[:s.opts.TopN]
-	}
+	// TopN is the Phase 2 output: it must be filled only with candidates that
+	// passed every enabled requirement. Never use rejected/timed-out candidates
+	// as padding when fewer than TopN usable edges exist; a smaller clean list is
+	// more truthful than a Top 10 containing failed edges.
+	cands = phase2Top(cands, s.opts.TopN)
 
 	// Reputation enrichment is best-effort and never fails the scan: a provider
 	// outage sets Report.ReputationError so the UI can say "not verified clean".
@@ -307,6 +307,24 @@ func (s *Scanner) Run(ctx context.Context) (*Report, error) {
 		Duration:        time.Since(start),
 		ReputationError: repErr,
 	}, nil
+}
+
+// phase2Top returns the highest-ranked healthy candidates. The input is already
+// ranked best-first; rejected candidates are excluded rather than used as padding.
+func phase2Top(cands []*score.Candidate, topN int) []*score.Candidate {
+	if topN <= 0 {
+		return cands
+	}
+	clean := make([]*score.Candidate, 0, len(cands))
+	for _, c := range cands {
+		if c.Healthy {
+			clean = append(clean, c)
+		}
+	}
+	if topN > 0 && len(clean) > topN {
+		clean = clean[:topN]
+	}
+	return clean
 }
 
 // probeStream probes every address arriving on src and returns those that
@@ -416,7 +434,7 @@ func (s *Scanner) longTestTop(ctx context.Context, cands []*score.Candidate) {
 	}
 
 	s.report(Progress{
-		Phase:  PhaseNeighbors,
+		Phase:   PhaseNeighbors,
 		Message: fmt.Sprintf("long-testing top %d survivors for %.0fs each", len(pool), s.opts.Probe.LongTestDuration.Seconds()),
 	})
 

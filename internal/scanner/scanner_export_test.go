@@ -45,6 +45,32 @@ func itoa(n int) string {
 	return string(b[i:])
 }
 
+func TestPhase2TopExcludesRejectedCandidates(t *testing.T) {
+	cands := []*score.Candidate{
+		mkCand("1.1.1.1", 443, true, 70),
+		mkCand("2.2.2.2", 443, false, 99),
+		mkCand("3.3.3.3", 443, true, 80),
+		mkCand("4.4.4.4", 443, false, 98),
+	}
+	got := phase2Top(cands, 3)
+	if len(got) != 2 {
+		t.Fatalf("Top 3 returned %d candidates, want 2 healthy candidates", len(got))
+	}
+	if got[0].IP != "1.1.1.1" || got[1].IP != "3.3.3.3" {
+		t.Fatalf("Top 3 included the wrong candidates: %v, %v", got[0].IP, got[1].IP)
+	}
+
+	got = phase2Top(cands, 1)
+	if len(got) != 1 || got[0].IP != "1.1.1.1" {
+		t.Fatalf("Top 1 was not capped to the first healthy candidate: %#v", got)
+	}
+
+	got = phase2Top(cands, 0)
+	if len(got) != 4 {
+		t.Fatalf("Top 0 should preserve all answered candidates, got %d", len(got))
+	}
+}
+
 func TestExportTextPhase2Working(t *testing.T) {
 	cands := []*score.Candidate{
 		mkCand("1.2.3.4", 443, false, 90),

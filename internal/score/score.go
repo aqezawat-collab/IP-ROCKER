@@ -178,6 +178,10 @@ func Evaluate(r *probe.Result, c Criteria) *Candidate {
 	// DownloadKBps stays zero through no fault of the edge. Penalising a zero
 	// that means "not measured" the same way as a zero that means "too slow"
 	// rejects good edges purely because speed.cloudflare.com was unreachable.
+	if stats.downloadTested && stats.downloadBps <= 0 {
+		cand.Healthy = false
+		cand.Notes = append(cand.Notes, "download test failed")
+	}
 	if c.MinDownloadKBps > 0 && stats.downloadTested && stats.downloadBps > 0 && cand.DownloadKBps < c.MinDownloadKBps {
 		cand.Healthy = false
 		cand.Notes = append(cand.Notes, "download below threshold")

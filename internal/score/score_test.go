@@ -45,6 +45,39 @@ func TestResetDuringHoldDisqualifies(t *testing.T) {
 	}
 }
 
+func TestUploadFailureDisqualifiesWhenTestEnabled(t *testing.T) {
+	r := &probe.Result{IP: net.ParseIP("4.4.4.4"), Port: 443, Mode: "http"}
+	r.Attempts = []probe.Attempt{{
+		Latency: 90 * time.Millisecond, TLSOk: true, HTTPOk: true,
+		HTTPStatus: 200, Colo: "FRA", HeldOpen: true,
+		UploadTested: true, UploadBps: 0,
+		Note: "upload: timeout",
+	}}
+
+	cand := Evaluate(r, DefaultCriteria())
+	if cand.Healthy {
+		t.Fatal("an enabled upload test timeout was marked healthy")
+	}
+	found := false
+	for _, note := range cand.Notes {
+		if strings.Contains(note, "upload test failed") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected upload failure note, got %v", cand.Notes)
+	}
+
+	withoutUpload := &probe.Result{IP: net.ParseIP("4.4.4.5"), Port: 443, Mode: "http"}
+	withoutUpload.Attempts = []probe.Attempt{{
+		Latency: 90 * time.Millisecond, TLSOk: true, HTTPOk: true,
+		HTTPStatus: 200, Colo: "FRA", HeldOpen: true,
+	}}
+	if cand := Evaluate(withoutUpload, DefaultCriteria()); !cand.Healthy {
+		t.Fatal("a disabled upload test changed a healthy result")
+	}
+}
+
 func TestLossAndFailureAreReported(t *testing.T) {
 	r := &probe.Result{IP: net.ParseIP("5.5.5.5"), Port: 443, Mode: "http"}
 	r.Attempts = []probe.Attempt{

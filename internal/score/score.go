@@ -14,10 +14,10 @@ import (
 
 // Weights control how much each dimension contributes. They sum to 1.0.
 type Weights struct {
-	Latency    float64
-	Stability  float64
-	Download   float64
-	Upload     float64
+	Latency   float64
+	Stability float64
+	Download  float64
+	Upload    float64
 }
 
 // DefaultWeights favour responsiveness first, then raw speed.
@@ -182,6 +182,13 @@ func Evaluate(r *probe.Result, c Criteria) *Candidate {
 		cand.Healthy = false
 		cand.Notes = append(cand.Notes, "download below threshold")
 	}
+	// Upload is an explicit user-enabled requirement. A timeout, reset, or
+	// rejected upload leaves UploadBps at zero; that must not be treated as a
+	// usable bidirectional edge when the upload test was requested.
+	if stats.uploadTested && stats.uploadBps <= 0 {
+		cand.Healthy = false
+		cand.Notes = append(cand.Notes, "upload test failed")
+	}
 
 	// A provisional total, correct for everything except latency. Latency is
 	// finalised by Rank once the whole population is visible.
@@ -237,6 +244,7 @@ type stats struct {
 	downloadBps      float64
 	uploadBps        float64
 	downloadTested   bool
+	uploadTested     bool
 	colo             string
 	tlsOk            bool
 	held             bool
@@ -297,6 +305,9 @@ func summarise(r *probe.Result) stats {
 		}
 		if a.DownloadTested {
 			s.downloadTested = true
+		}
+		if a.UploadTested {
+			s.uploadTested = true
 		}
 		if a.UploadBps > s.uploadBps {
 			s.uploadBps = a.UploadBps

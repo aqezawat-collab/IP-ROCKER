@@ -179,6 +179,9 @@ type Attempt struct {
 	// DownloadTested records that a transfer was attempted, so a zero
 	// DownloadBps can be told apart from "the check was disabled".
 	DownloadTested bool
+	// UploadTested records that an upstream transfer was attempted, so a zero
+	// UploadBps can be distinguished from an intentionally disabled test.
+	UploadTested bool
 
 	// Note is a non-fatal observation. The attempt still counts as a success;
 	// only Err disqualifies it.
@@ -451,10 +454,12 @@ func probeHTTP(ctx context.Context, ip net.IP, sni string, cfg Config) Attempt {
 	}
 
 	if cfg.UploadBytes > 0 {
+		att.UploadTested = true
 		bps, err := measureUpload(ctx, speedClient, scheme, speedTestHost, cfg)
 		if err != nil {
-			// A failed upload downgrades the address but does not disqualify
-			// it, because not every front exposes an upload endpoint.
+			// An enabled upload test that fails is recorded as zero; score
+			// evaluation turns this into an unusable candidate. This keeps a
+			// bidirectional test from being reported as healthy after timeout.
 			att.UploadBps = 0
 			att.Note = "upload: " + err.Error()
 		} else {

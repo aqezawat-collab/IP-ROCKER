@@ -208,7 +208,7 @@ fun ScanScreen(viewModel: ScanViewModel = viewModel()) {
             if (report != null) {
                 item {
                     SectionLabel(
-                        "Phase 2 · ${report.cleanCount} usable of ${report.candidates.size} answered",
+                        "Phase 2 · ${report.cleanCount} usable of ${report.hits} answered",
                     )
                 }
             }
@@ -218,9 +218,9 @@ fun ScanScreen(viewModel: ScanViewModel = viewModel()) {
                     FilterRow(
                         current = state.filter,
                         usableCount = state.report?.cleanCount ?: state.liveHits.count { it.healthy },
-                        // The report may be capped by Top N, so this is the number
-                        // of retained answering candidates shown by the filter.
-                        answeredCount = state.report?.candidates?.size ?: state.liveHits.size,
+                        // Report.hits is the full number of successful answers;
+                        // candidates may be capped by Top N and must not replace it.
+                        answeredCount = state.report?.hits?.toInt() ?: state.liveHits.size,
                         // testedCount is every address probed, including no-response ones.
                         testedCount = state.report?.tested?.toInt() ?: state.tested,
                         onSelect = viewModel::setFilter,

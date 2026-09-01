@@ -53,7 +53,11 @@ data class UiState(
             // the Usable / Rejected chips actually narrow the list live (the
             // chips are shown during scanning too — see FilterRow in ScanScreen),
             // instead of being a no-op until the scan finishes.
-            val source = if (r == null || r.candidates.isEmpty()) liveHits else r.candidates
+            // Once the final report arrives it is authoritative, even when it
+            // contains zero retained candidates after Phase 2 eligibility checks.
+            // Falling back to liveHits here made rejected provisional results look
+            // usable after the scan finished.
+            val source = if (r == null) liveHits else r.candidates
             val sorted = source.sortedByDescending { it.score }
             return when (filter) {
                 ResultFilter.USABLE -> sorted.filter { it.healthy }

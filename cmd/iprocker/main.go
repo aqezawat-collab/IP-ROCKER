@@ -22,6 +22,7 @@ import (
 	"github.com/Qezawat/IP-ROCKER/internal/scanner"
 	"github.com/Qezawat/IP-ROCKER/internal/score"
 	"github.com/Qezawat/IP-ROCKER/internal/tui"
+	"github.com/Qezawat/IP-ROCKER/mobile"
 )
 
 var version = "dev"
@@ -45,7 +46,10 @@ func main() {
 		host        = flag.String("host", "", "HTTP Host header; empty uses the SNI")
 		strict      = flag.Bool("strict", false, "only accept addresses that are clean on every axis")
 		extra       = flag.String("cidr", "", "comma-separated IPs/CIDRs to include (bare IPs become /32)")
-		only        = flag.Bool("only-cidr", false, "scan only the CIDRs given by -cidr")
+		ipsFile     = flag.String("ips", "", "read IPs/CIDRs from a text file, one per line")
+		only        = flag.Bool("only-cidr", false, "scan only the CIDRs given by -cidr or -ips")
+		configLink  = flag.String("config", "", "vless://, trojan:// or vmess:// config link to pin SNI/Host/path/port")
+
 		top         = flag.Int("top", 20, "how many results to print")
 		longTest    = flag.Bool("long-test", false, "run a sustained long-test on the top survivors to catch filters that reset after 10-15 s")
 		longTestMs  = flag.Int("long-test-ms", 15000, "how long the long-test should run per candidate (ms)")
@@ -107,8 +111,38 @@ func main() {
 	// If the user supplied a positional file path, load IPs/CIDRs from it.
 	// This mirrors IP-ROCKER ips.txt behaviour: a plain text file with
 	// one address or CIDR per line is the easiest way to feed a custom list.
+	if strings.TrimSpace(*configLink) != "" {
+		cfg, err := mobile.ParseConfigLink(*configLink)
+		if err != nil {
+			fail(fmt.Errorf("parsing -config: %w", err))
+		}
+		if cfg.SNI != "" {
+			*sni = cfg.SNI
+		}
+		if cfg.Host != "" {
+			*host = cfg.Host
+		}
+		if cfg.Path != "" {
+			*wsPath = cfg.Path
+			*requireWS = true
+		}
+		if cfg.Port > 0 {
+			*port = cfg.Port
+			*portsList = ""
+		}
+	}
+
+	if *ipsFile != "" {
+		fileCIDRs, err := loadIPList(*ipsFile)
+		if err != nil {
+			fail(fmt.Errorf("loading %s: %w", *ipsFile, err))
+		}
+		extraCIDRs = append(extraCIDRs, fileCIDRs...)
+	}
+
 	if flag.NArg() > 0 {
 		filePath := flag.Arg(0)
+
 		fileCIDRs, err := loadIPList(filePath)
 		if err != nil {
 			fail(fmt.Errorf("loading %s: %w", filePath, err))
@@ -116,7 +150,14 @@ func main() {
 		extraCIDRs = append(extraCIDRs, fileCIDRs...)
 	}
 
+	// Reparse after -config because a config link may pin a different port.
+	ports, err = netports.Parse(*portsList, *port)
+	if err != nil {
+		fail(err)
+	}
+
 	opts := scanner.Options{
+
 		Count:       *count,
 		Concurrency: *concurrency,
 		Ports:       ports,
@@ -142,6 +183,7 @@ func main() {
 			OnlyExtra:  *only,
 			SkipDirty:  true,
 		},
+		TopN:       *top,
 		Reputation: *reputation,
 	}
 

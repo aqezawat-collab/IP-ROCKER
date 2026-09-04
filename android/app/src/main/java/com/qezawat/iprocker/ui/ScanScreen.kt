@@ -218,11 +218,7 @@ fun ScanScreen(viewModel: ScanViewModel = viewModel()) {
                     FilterRow(
                         current = state.filter,
                         usableCount = state.report?.cleanCount ?: state.liveHits.count { it.healthy },
-                        // Report.hits is the full number of successful answers;
-                        // candidates may be capped by Top N and must not replace it.
-                        answeredCount = state.report?.hits?.toInt() ?: state.liveHits.size,
-                        // testedCount is every address probed, including no-response ones.
-                        testedCount = state.report?.tested?.toInt() ?: state.tested,
+                        answeredCount = state.report?.hits?.toInt() ?: state.hits,
                         onSelect = viewModel::setFilter,
                     )
                 }
@@ -401,21 +397,15 @@ private fun FilterRow(
     current: ResultFilter,
     usableCount: Int,
     answeredCount: Int,
-    testedCount: Int,
     onSelect: (ResultFilter) -> Unit,
 ) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        // All  = every address that answered (candidates — the ones the Go core
-        //        measured and returned; no-response addresses are never sent back
-        //        because there is nothing to show for them).
-        // Rejected = answered but failed at least one check (!healthy)
-        // The testedCount badge on All is intentionally the full probed count so
-        // the user knows how many were swept, even though the list only shows
-        // the ones that answered.
-        val flaggedCount = answeredCount - usableCount
+        // Rejected means answered but failed at least one check; no-response
+        // probes are neither answered nor rejected. Answered remains in the main
+        // summary above, so it does not need a duplicate filter chip.
+        val flaggedCount = (answeredCount - usableCount).coerceAtLeast(0)
         val options = listOf(
             ResultFilter.USABLE to "Usable ($usableCount)",
-            ResultFilter.ALL to "Answered ($answeredCount)",
             ResultFilter.FLAGGED to "Rejected ($flaggedCount)",
         )
         options.forEach { (filter, label) ->

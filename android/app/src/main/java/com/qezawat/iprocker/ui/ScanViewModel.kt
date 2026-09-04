@@ -18,7 +18,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** Which result group the list is showing. */
-enum class ResultFilter { USABLE, ALL, FLAGGED }
+enum class ResultFilter { USABLE, FLAGGED }
 
 data class UiState(
     val settings: ScanSettings = ScanSettings(),
@@ -62,7 +62,6 @@ data class UiState(
             return when (filter) {
                 ResultFilter.USABLE -> sorted.filter { it.healthy }
                 ResultFilter.FLAGGED -> sorted.filter { !it.healthy }
-                ResultFilter.ALL -> sorted
             }
         }
 
@@ -104,10 +103,10 @@ class ScanViewModel(app: Application) : AndroidViewModel(app) {
             bridge.events.collect { event ->
                 when (event) {
                     is ScannerBridge.Event.Hit -> _state.update {
-                        // Cap the live list: during a large scan the report at
-                        // the end is authoritative, and an unbounded list would
-                        // make recomposition expensive.
-                        val next = (it.liveHits + event.candidate).takeLast(200)
+                        // Keep every answered live candidate so the visible list
+                        // and counters do not falsely stop at 200 results. The final
+                        // report still applies Top N for Phase 2 output.
+                        val next = it.liveHits + event.candidate
                         it.copy(liveHits = next)
                     }
 

@@ -494,15 +494,15 @@ func (s settings) criteria() score.Criteria {
 // probeConfig builds the per-address measurement from the setup page.
 func (s settings) probeConfig(port int) probe.Config {
 	return probe.Config{
-		Port:          port,
-		Mode:          probe.ModeHTTP,
-		Tries:         s.tries(),
-		Timeout:       s.timeout(),
-		HoldDuration:  3 * time.Second,
-		LongTest:        false,
+		Port:             port,
+		Mode:             probe.ModeHTTP,
+		Tries:            s.tries(),
+		Timeout:          s.timeout(),
+		HoldDuration:     3 * time.Second,
+		LongTest:         false,
 		LongTestDuration: 0,
-		DownloadBytes: s.downloadBytes(),
-		UploadBytes:   s.uploadBytes(),
+		DownloadBytes:    s.downloadBytes(),
+		UploadBytes:      s.uploadBytes(),
 	}
 }
 
